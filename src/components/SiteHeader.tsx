@@ -1,0 +1,4 @@
+import { ArrowUpRight } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
+
+export function SiteHeader() { return <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 lg:px-8"><BrandMark /><nav className="hidden items-center gap-8 text-sm text-[#a8a0aa] md:flex"><a href="#studio" className="transition-colors hover:text-[#f5f1ea]">Studio</a><a href="#how-it-works" className="transition-colors hover:text-[#f5f1ea]">How it works</a><a href="#legal" className="transition-colors hover:text-[#f5f1ea]">Responsible use</a></nav><a href="#studio" className="flex items-center gap-1 rounded-full border border-[#403943] px-4 py-2 text-sm font-medium transition-colors hover:border-[#e3aa61] hover:text-[#e3aa61]">Open studio <ArrowUpRight size={15} /></a></header>; }
