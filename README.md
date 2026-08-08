@@ -15,6 +15,7 @@ Open `http://localhost:3000`.
 
 ```bash
 npm run lint
+npm run test
 npm run build
 npm run start
 ```
@@ -26,7 +27,10 @@ npm run start
 - Soft piano, warm pad, and soft bell synthesis options
 - Volume and sustain controls
 - Responsive horizontal piano scrolling on small screens
-- Prepared empty Studio area for future visual lessons
+- Three original local demo exercises with typed note events
+- Scheduled falling-note piano roll synchronized with the keyboard
+- Play, pause, restart, seek, count-in, metronome, loop, speed, hand, note-name, and fingering controls
+- Unit coverage for lesson timing and active-note state
 - Responsible-use legal notice
 
-Audio upload, audio analysis, AI tutoring, authentication, and persistence are intentionally not implemented yet.
+Audio upload, audio extraction, AI tutoring, authentication, and persistence are intentionally not implemented yet.
