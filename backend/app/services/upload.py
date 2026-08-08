@@ -1,5 +1,7 @@
-import hashlib
 import tempfile
+import uuid
+import wave
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -49,6 +51,21 @@ def _validate_types(filename: Path, declared: str | None, detected: str | None) 
         raise AnalysisError("invalid_mime_type", "The declared content type is not valid for this extension.", 415, {"declared": declared or "missing"})
 
 
+def _validate_decodable(path: Path, settings: Settings) -> None:
+    if path.suffix.lower() == ".wav":
+        try:
+            with wave.open(str(path), "rb") as wav_file:
+                if wav_file.getnframes() <= 0 or wav_file.getframerate() <= 0 or wav_file.getnchannels() <= 0:
+                    raise AnalysisError("invalid_audio", "The WAV file contains no usable audio frames.", 422)
+        except AnalysisError:
+            raise
+        except (EOFError, wave.Error, OSError) as error:
+            raise AnalysisError("invalid_audio", "The uploaded WAV file is damaged or incomplete.", 422) from error
+        return
+    if shutil.which(settings.ffmpeg_binary) is None:
+        raise AnalysisError("decoder_unavailable", "This file type is not decodable in the current environment because FFmpeg is unavailable.", 415, {"extension": path.suffix.lower(), "ffmpeg_required": True})
+
+
 @asynccontextmanager
 async def staged_upload(upload: UploadFile, settings: Settings) -> AsyncIterator[Path]:
     filename = _validate_filename(upload.filename)
@@ -60,6 +77,7 @@ async def staged_upload(upload: UploadFile, settings: Settings) -> AsyncIterator
     _validate_types(filename, upload.content_type, sniff_content_type(content))
     settings.temp_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="swarai-upload-", dir=settings.temp_root) as directory:
-        path = Path(directory) / f"audio-{hashlib.sha256(content).hexdigest()[:16]}{filename.suffix}"
+        path = Path(directory) / f"upload-{uuid.uuid4().hex}{filename.suffix}"
         path.write_bytes(content)
+        _validate_decodable(path, settings)
         yield path

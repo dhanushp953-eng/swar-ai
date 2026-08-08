@@ -1,12 +1,16 @@
 import shutil
+import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
 from app.core.errors import AnalysisError
-from app.schemas.analysis import HealthResponse
+from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
+from app.services.jobs import JobStore
+from app.services.upload import staged_upload
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -14,14 +18,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=active_settings.app_name,
         version=active_settings.analysis_version,
-        description="Phase 3A scaffold. Audio analysis endpoints will be added in a later step.",
+        description="Phase 3B validates authorised local audio uploads without analyzing or storing music.",
     )
     app.state.settings = active_settings
+    app.state.jobs = JobStore()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_cors_origins,
         allow_credentials=False,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
 
@@ -29,6 +34,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def analysis_error_handler(request: Request, error: AnalysisError) -> JSONResponse:
         del request
         return JSONResponse(status_code=error.status_code, content={"error": {"code": error.code, "message": error.message, "details": error.details}})
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(request: Request, error: RequestValidationError) -> JSONResponse:
+        del request
+        details = [{"location": list(item.get("loc", ())), "message": item.get("msg", "Invalid request."), "type": item.get("type", "validation_error")} for item in error.errors()]
+        return JSONResponse(status_code=422, content={"error": {"code": "invalid_request", "message": "The request could not be validated.", "details": {"errors": details}}})
 
     @app.get("/health", response_model=HealthResponse, tags=["system"])
     async def health() -> HealthResponse:
@@ -40,6 +51,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             basic_pitch_available=False,
             basic_pitch_reason="Phase 3A intentionally does not install or activate analysis dependencies.",
         )
+
+    @app.post("/api/analyze", response_model=JobResponse, status_code=201, tags=["analysis"])
+    async def analyze(file: UploadFile = File(..., description="WAV, MP3, M4A, or OGG audio you own or are authorised to analyze."), authorized: bool | None = Form(default=None, description="Confirm that you own or are authorised to analyze this audio.")) -> JobResponse:
+        if authorized is not True:
+            raise AnalysisError("authorization_required", "Confirm that you own or are authorised to analyze this audio.", 403)
+        job_id = str(uuid.uuid4())
+        jobs: JobStore = app.state.jobs
+        jobs.create(job_id)
+        jobs.update(job_id, status="processing", progress=10)
+        try:
+            async with staged_upload(file, active_settings) as staged_path:
+                del staged_path
+                jobs.update(job_id, status="validated", progress=100)
+        except AnalysisError as error:
+            jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code=error.code, message=error.message, details=error.details))
+            raise
+        except Exception as error:
+            jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code="validation_failed", message="The audio file could not be validated.", details={}))
+            raise AnalysisError("validation_failed", "The audio file could not be validated.", 422) from error
+        return jobs.get(job_id).response()
+
+    @app.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["analysis"])
+    async def get_job(job_id: str) -> JobResponse:
+        record = app.state.jobs.get(job_id)
+        if record is None:
+            raise AnalysisError("job_not_found", "No analysis job exists for that ID.", 404)
+        return record.response()
 
     return app
 

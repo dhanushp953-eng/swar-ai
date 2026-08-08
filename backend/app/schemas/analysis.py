@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-AnalysisStatus = Literal["queued", "processing", "completed", "failed"]
+AnalysisStatus = Literal["queued", "processing", "validated", "pending_analysis", "completed", "failed"]
 
 
 class NoteEvent(BaseModel):
