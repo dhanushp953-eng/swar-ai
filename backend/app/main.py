@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.core.errors import AnalysisError
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
 from app.services.jobs import JobStore
+from app.services.rhythm_analysis import RhythmAnalysisService
 from app.services.upload import staged_upload
 
 
@@ -18,10 +19,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=active_settings.app_name,
         version=active_settings.analysis_version,
-        description="Phase 3B validates authorised local audio uploads without analyzing or storing music.",
+        description="Phase 3C validates authorised local audio and estimates rhythm locally with librosa.",
     )
     app.state.settings = active_settings
     app.state.jobs = JobStore()
+    app.state.rhythm_analyzer = RhythmAnalysisService(active_settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_cors_origins,
@@ -47,9 +49,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="ok",
             analysis_version=active_settings.analysis_version,
             ffmpeg_available=shutil.which(active_settings.ffmpeg_binary) is not None,
-            active_transcription_engine="phase3a-scaffold",
+            active_transcription_engine="librosa-rhythm-only",
             basic_pitch_available=False,
-            basic_pitch_reason="Phase 3A intentionally does not install or activate analysis dependencies.",
+            basic_pitch_reason="Basic Pitch is intentionally not installed; this phase only estimates rhythm.",
         )
 
     @app.post("/api/analyze", response_model=JobResponse, status_code=201, tags=["analysis"])
@@ -58,18 +60,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise AnalysisError("authorization_required", "Confirm that you own or are authorised to analyze this audio.", 403)
         job_id = str(uuid.uuid4())
         jobs: JobStore = app.state.jobs
-        jobs.create(job_id)
-        jobs.update(job_id, status="processing", progress=10)
+        record = None
         try:
             async with staged_upload(file, active_settings) as staged_path:
-                del staged_path
-                jobs.update(job_id, status="validated", progress=100)
+                record = jobs.create(job_id)
+                jobs.update(job_id, status="validated", progress=25)
+                jobs.update(job_id, status="processing", progress=40)
+                rhythm = app.state.rhythm_analyzer.analyze(staged_path)
+                jobs.update(job_id, status="completed", progress=100, rhythm=rhythm)
         except AnalysisError as error:
-            jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code=error.code, message=error.message, details=error.details))
+            if record is not None:
+                jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code=error.code, message=error.message, details=error.details))
             raise
         except Exception as error:
-            jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code="validation_failed", message="The audio file could not be validated.", details={}))
-            raise AnalysisError("validation_failed", "The audio file could not be validated.", 422) from error
+            if record is not None:
+                jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code="analysis_failed", message="The audio could not be analyzed.", details={}))
+            raise AnalysisError("analysis_failed", "The audio could not be analyzed.", 422) from error
         return jobs.get(job_id).response()
 
     @app.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["analysis"])

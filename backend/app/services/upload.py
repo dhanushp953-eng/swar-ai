@@ -2,6 +2,8 @@ import tempfile
 import uuid
 import wave
 import shutil
+
+import soundfile as sf
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -62,6 +64,15 @@ def _validate_decodable(path: Path, settings: Settings) -> None:
         except (EOFError, wave.Error, OSError) as error:
             raise AnalysisError("invalid_audio", "The uploaded WAV file is damaged or incomplete.", 422) from error
         return
+    try:
+        info = sf.info(path)
+        if info.frames <= 0 or info.samplerate <= 0:
+            raise AnalysisError("invalid_audio", "The uploaded audio contains no usable frames.", 422)
+        return
+    except AnalysisError:
+        raise
+    except (RuntimeError, OSError, sf.SoundFileError):
+        pass
     if shutil.which(settings.ffmpeg_binary) is None:
         raise AnalysisError("decoder_unavailable", "This file type is not decodable in the current environment because FFmpeg is unavailable.", 415, {"extension": path.suffix.lower(), "ffmpeg_required": True})
 

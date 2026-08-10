@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from threading import Lock
 
-from app.schemas.analysis import AnalysisResult, ErrorResponse, JobResponse
+from app.schemas.analysis import AnalysisResult, ErrorResponse, JobResponse, RhythmAnalysis
 
 
 @dataclass
@@ -11,9 +11,23 @@ class JobRecord:
     progress: int = 0
     result: AnalysisResult | None = None
     error: ErrorResponse | None = None
+    rhythm: RhythmAnalysis | None = None
 
     def response(self) -> JobResponse:
-        return JobResponse(job_id=self.job_id, status=self.status, progress=self.progress, result=self.result, error=self.error)
+        return JobResponse(
+            job_id=self.job_id,
+            status=self.status,
+            progress=self.progress,
+            result=self.result,
+            error=self.error,
+            duration=self.rhythm.duration if self.rhythm else None,
+            estimated_bpm=self.rhythm.estimated_bpm if self.rhythm else None,
+            beat_timestamps=self.rhythm.beat_timestamps if self.rhythm else [],
+            rhythm_confidence=self.rhythm.rhythm_confidence if self.rhythm else None,
+            warnings=self.rhythm.warnings if self.rhythm else [],
+            analysis_engine=self.rhythm.analysis_engine if self.rhythm else None,
+            analysis_version=self.rhythm.analysis_version if self.rhythm else None,
+        )
 
 
 class JobStore:
@@ -31,7 +45,7 @@ class JobStore:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def update(self, job_id: str, *, status: str | None = None, progress: int | None = None, result: AnalysisResult | None = None, error: ErrorResponse | None = None) -> JobRecord:
+    def update(self, job_id: str, *, status: str | None = None, progress: int | None = None, result: AnalysisResult | None = None, error: ErrorResponse | None = None, rhythm: RhythmAnalysis | None = None) -> JobRecord:
         with self._lock:
             record = self._jobs[job_id]
             if status is not None:
@@ -42,4 +56,6 @@ class JobStore:
                 record.result = result
             if error is not None:
                 record.error = error
+            if rhythm is not None:
+                record.rhythm = rhythm
             return record

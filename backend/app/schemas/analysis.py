@@ -54,12 +54,29 @@ class ErrorResponse(BaseModel):
     details: dict[str, object] = Field(default_factory=dict)
 
 
+class RhythmAnalysis(BaseModel):
+    duration: float = Field(ge=0)
+    estimated_bpm: float | None = Field(default=None, gt=0)
+    beat_timestamps: list[float] = Field(default_factory=list)
+    rhythm_confidence: float = Field(ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+    analysis_engine: str
+    analysis_version: str
+
+
 class JobResponse(BaseModel):
     job_id: str
     status: AnalysisStatus
     progress: int = Field(ge=0, le=100)
     result: AnalysisResult | None = None
     error: ErrorResponse | None = None
+    duration: float | None = Field(default=None, ge=0)
+    estimated_bpm: float | None = Field(default=None, gt=0)
+    beat_timestamps: list[float] = Field(default_factory=list)
+    rhythm_confidence: float | None = Field(default=None, ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+    analysis_engine: str | None = None
+    analysis_version: str | None = None
 
 
 class HealthResponse(BaseModel):

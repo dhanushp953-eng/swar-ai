@@ -33,13 +33,16 @@ class AudioDecoder:
             if not ffmpeg_available(self.settings):
                 raise AnalysisError("decoder_unavailable", "This audio codec needs FFmpeg, which is not available on the server.", 415, {"ffmpeg_required": True, "extension": path.suffix.lower()}) from soundfile_error
             try:
-                mono, sample_rate = librosa.load(path, sr=22050, mono=True)
+                mono, sample_rate = librosa.load(path, sr=self.settings.analysis_sample_rate, mono=True)
                 mono = np.asarray(mono, dtype=np.float32)
             except Exception as decoder_error:  # decoder libraries expose several backend-specific exception types
                 raise AnalysisError("invalid_audio", "The uploaded audio could not be decoded.", 422) from decoder_error
 
         if mono.size == 0 or not np.isfinite(mono).all():
             raise AnalysisError("invalid_audio", "The uploaded audio contains no usable finite samples.", 422)
+        if int(sample_rate) != self.settings.analysis_sample_rate:
+            mono = librosa.resample(mono, orig_sr=int(sample_rate), target_sr=self.settings.analysis_sample_rate)
+            sample_rate = self.settings.analysis_sample_rate
         duration = float(mono.size / sample_rate)
         if duration <= 0:
             raise AnalysisError("invalid_audio", "The uploaded audio has no duration.", 422)

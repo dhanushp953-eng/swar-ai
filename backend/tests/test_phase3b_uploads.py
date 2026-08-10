@@ -49,11 +49,12 @@ def test_valid_wav_is_validated_and_cleaned_up(app_factory, tmp_path: Path):
         response = post_wav(client)
         assert response.status_code == 201
         payload = response.json()
-        assert payload["status"] == "validated"
+        assert payload["status"] == "completed"
         assert payload["progress"] == 100
+        assert payload["analysis_engine"] == "librosa.beat.beat_track"
         job_response = client.get(f"/api/jobs/{payload['job_id']}")
     assert job_response.status_code == 200
-    assert job_response.json()["status"] == "validated"
+    assert job_response.json()["status"] == "completed"
     assert list(tmp_path.iterdir()) == []
 
 
