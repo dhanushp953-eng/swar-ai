@@ -1,14 +1,16 @@
 "use client";
 
 import { Pause, Play, Repeat2, RotateCcw, TimerReset } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
 import { demoExercises } from "@/data/demo-exercises";
 import { Piano } from "@/components/piano";
-import { useLessonEngine } from "@/hooks/useLessonEngine";
+import { type OutputMode, useLessonEngine } from "@/hooks/useLessonEngine";
+import type { DetectedLesson } from "@/features/lesson/detected-lesson";
 import type { HandMode, LessonExercise } from "@/types/lesson";
 import { getActiveMidi, getCurrentMusicalDisplay } from "@/utils/lesson-notes";
 import { PLAYBACK_SPEEDS } from "@/utils/lesson-timing";
 import { PianoRoll } from "@/features/lesson/PianoRoll";
+import { getLessonSelectOptions, resolveLessonSelection } from "@/features/lesson/lesson-selection";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -16,26 +18,30 @@ function formatTime(seconds: number) {
   return `${minutes}:${remainder}`;
 }
 
-export function LessonWorkspace() {
-  const [exerciseId, setExerciseId] = useState(demoExercises[0].id);
-  const exercise = demoExercises.find((item) => item.id === exerciseId) ?? demoExercises[0];
-  return <LessonSession key={exercise.id} exercise={exercise} onExerciseChange={setExerciseId} />;
+export function LessonWorkspace({ detectedLesson, detectedObjectUrl, detectedAudioRef }: { detectedLesson?: DetectedLesson | null; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null> }) {
+  const [lessonId, setLessonId] = useState(() => detectedLesson ? "detected" : demoExercises[0].id);
+  const selection = resolveLessonSelection(lessonId, detectedLesson, demoExercises);
+  return <LessonSession key={`${selection.isDetected ? "detected" : "demo"}-${selection.exercise.id}`} exercise={selection.exercise} onExerciseChange={setLessonId} isDetected={selection.isDetected} detectedLesson={detectedLesson} detectedObjectUrl={detectedObjectUrl} detectedAudioRef={detectedAudioRef} />;
 }
 
-function LessonSession({ exercise, onExerciseChange }: { exercise: LessonExercise; onExerciseChange: (id: string) => void }) {
+function LessonSession({ exercise, onExerciseChange, isDetected, detectedLesson, detectedObjectUrl, detectedAudioRef }: { exercise: LessonExercise; onExerciseChange: (id: string) => void; isDetected: boolean; detectedLesson: DetectedLesson | null | undefined; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null> }) {
   const [showNoteNames, setShowNoteNames] = useState(true);
   const [showFingerNumbers, setShowFingerNumbers] = useState(true);
-  const engine = useLessonEngine(exercise);
-  const activeMidi = useMemo(() => engine.status === "playing" ? getActiveMidi(exercise.events, engine.currentTime, engine.handMode) : new Set<number>(), [engine.currentTime, engine.handMode, engine.status, exercise.events]);
+  const localAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = detectedAudioRef ?? localAudioRef;
+  const engine = useLessonEngine(exercise, { audioFile: isDetected ? detectedLesson?.audioFile : null, audioRef, objectUrl: isDetected ? detectedObjectUrl ?? null : null });
+  const activeMidi = useMemo(() => engine.status === "playing" || engine.status === "paused" ? getActiveMidi(exercise.events, engine.currentTime, engine.handMode) : new Set<number>(), [engine.currentTime, engine.handMode, engine.status, exercise.events]);
   const display = useMemo(() => getCurrentMusicalDisplay(exercise.events, engine.currentTime, engine.handMode), [engine.currentTime, engine.handMode, exercise.events]);
   const isPlaying = engine.status === "playing" || engine.status === "count-in";
   const statusLabel = engine.status === "count-in" ? "Count-in" : engine.status === "complete" ? "Complete" : engine.status === "paused" ? "Paused" : engine.status === "playing" ? "Playing" : "Ready";
+  const bpmLabel = isDetected ? detectedLesson?.estimatedBpm === null ? "Unknown" : Math.round(detectedLesson?.estimatedBpm ?? 0) : exercise.bpm;
 
   return <div className="lesson-workspace lesson-engine">
     <div className="workspace-top"><div><span className="status-dot" />Lesson workspace <span className="muted">/ {statusLabel.toLowerCase()}</span></div><div className="workspace-actions"><button type="button" onClick={engine.restart} aria-label="Restart lesson"><RotateCcw size={16} /></button><button type="button" onClick={isPlaying ? engine.pause : engine.play} aria-label={isPlaying ? "Pause lesson" : "Play lesson"}>{isPlaying ? <Pause size={16} /> : <Play size={16} />}</button></div></div>
-    <div className="lesson-topline"><label className="lesson-select">Exercise<select aria-label="Demo exercise" value={exercise.id} onChange={(event) => onExerciseChange(event.target.value)}>{demoExercises.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><p>{exercise.description}</p><div className="lesson-meta"><span>{exercise.bpm} BPM</span><span>{exercise.beatsPerMeasure}/4</span></div></div>
-    <div className="lesson-reading"><div><span>{display.label}</span><strong>{display.value}</strong></div><div className="hand-legend"><span className="legend-left">Left hand</span><span className="legend-right">Right hand</span></div></div>
+    <div className="lesson-topline"><label className="lesson-select">Lesson<select aria-label="Lesson selection" value={isDetected ? "detected" : exercise.id} onChange={(event) => onExerciseChange(event.target.value)}>{getLessonSelectOptions(detectedLesson, demoExercises).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><p>{isDetected ? <strong className="detected-lesson-label">Detected from your audio.</strong> : exercise.description}</p><div className="lesson-meta"><span>{bpmLabel === "Unknown" ? "BPM unknown" : `${bpmLabel} BPM`}</span><span>{isDetected ? `${exercise.events.length} notes` : `${exercise.beatsPerMeasure}/4`}</span></div></div>
+    <div className="lesson-reading"><div><span>{display.label}</span><strong>{display.value}</strong></div><div className="hand-legend">{isDetected ? <span className="legend-detected">Detected melody</span> : <><span className="legend-left">Left hand</span><span className="legend-right">Right hand</span></>}</div></div>
     <Piano lessonActiveMidi={activeMidi} lessonRoll={<PianoRoll events={exercise.events} currentTime={engine.currentTime} handMode={engine.handMode} showNoteNames={showNoteNames} showFingerNumbers={showFingerNumbers} countInBeat={engine.countInBeat} isPlaying={engine.status === "playing"} />} />
+    {isDetected && <div className="detected-audio-controls"><audio ref={audioRef} preload="metadata" aria-label="Original uploaded audio" /><div className="detected-audio-heading"><span><span className="eyebrow">Master clock</span><strong>Original audio</strong></span><span>{detectedLesson?.melodyConfidence === null ? "Confidence unknown" : `${Math.round((detectedLesson?.melodyConfidence ?? 0) * 100)}% melody confidence`}</span></div><div className="detected-audio-options"><label>Output mode<select value={engine.outputMode} onChange={(event) => engine.setOutputMode(event.target.value as OutputMode)}><option value="both">Both</option><option value="original">Original audio</option><option value="piano">Generated piano</option></select></label><label>Original volume<input aria-label="Original audio volume" type="range" min="0" max="1" step="0.01" value={engine.originalVolume} onChange={(event) => engine.setOriginalVolume(Number(event.target.value))} /></label><label>Generated piano volume<input aria-label="Generated piano volume" type="range" min="-30" max="0" value={engine.generatedVolume} onChange={(event) => engine.setGeneratedVolume(Number(event.target.value))} /></label><label>Sync offset <output>{engine.syncOffsetMs} ms</output><input aria-label="Synchronization offset" type="range" min="-500" max="500" step="10" value={engine.syncOffsetMs} onChange={(event) => engine.setSyncOffsetMs(Number(event.target.value))} /></label><button type="button" className="audio-sync-reset" onClick={() => engine.setSyncOffsetMs(0)}>Reset offset</button></div>{!engine.preservesPitchSupported && <p className="audio-limitation">Pitch preservation is not supported by this browser; changing speed may change the original audio pitch.</p>}{engine.audioError && <p className="audio-form-error" role="alert">{engine.audioError}</p>}</div>}
     <div className="lesson-progress-row"><output>{formatTime(engine.currentTime)}</output><input aria-label="Lesson progress" className="lesson-progress" type="range" min="0" max={exercise.duration} step="0.01" value={engine.currentTime} onChange={(event) => engine.seek(Number(event.target.value))} /><output>{formatTime(exercise.duration)}</output></div>
     <div className="lesson-option-grid">
       <div className="lesson-option-group"><span className="lesson-option-label">Playback speed</span><div className="speed-options">{PLAYBACK_SPEEDS.map((option) => <button key={option} type="button" className={engine.speed === option ? "selected" : ""} onClick={() => engine.setSpeed(option)}>{option * 100}%</button>)}</div></div>

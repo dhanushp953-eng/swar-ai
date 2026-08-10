@@ -31,6 +31,13 @@ const STATUS_LABELS: Record<UploadStatus, string> = {
 const STATUS_STAGES: UploadStatus[] = ["ready", "uploading", "validating", "processing", "completed"];
 const ACCEPTED_AUDIO = ".wav,.mp3,.m4a,.ogg,audio/wav,audio/x-wav,audio/mpeg,audio/mp4,audio/ogg";
 
+type AudioAnalysisPanelProps = {
+  detectedLessonLoaded?: boolean;
+  lessonLoadError?: string | null;
+  onAnalysisReset?: () => void;
+  onLoadDetectedLesson?: (file: File, job: AnalysisJob) => string | null;
+};
+
 function getStatusFromJob(job: AnalysisJob): UploadStatus {
   return mapJobStatus(job.status);
 }
@@ -43,7 +50,7 @@ function describeBackendError(error: AnalysisJob["error"]): string | null {
   return error?.message || null;
 }
 
-export function AudioAnalysisPanel() {
+export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadError = null, onAnalysisReset, onLoadDetectedLesson }: AudioAnalysisPanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [authorized, setAuthorized] = useState(false);
@@ -75,6 +82,7 @@ export function AudioAnalysisPanel() {
   };
 
   const selectFile = (nextFile: File | null) => {
+    onAnalysisReset?.();
     const validationError = validateAudioFile(nextFile);
     setFileError(validationError);
     setError(null);
@@ -129,6 +137,7 @@ export function AudioAnalysisPanel() {
   };
 
   const removeFile = () => {
+    onAnalysisReset?.();
     cancelUpload();
     setFile(null);
     setFileError(null);
@@ -217,6 +226,7 @@ export function AudioAnalysisPanel() {
       </div>
       {isBusy && <div className="audio-progress-track"><span style={{ width: `${Math.max(progress, status === "processing" ? 100 : 0)}%` }} /></div>}
       {error && <p className="audio-form-error" role="alert"><AlertTriangle size={14} />{error}</p>}
+      {lessonLoadError && <p className="audio-form-error" role="alert"><AlertTriangle size={14} />{lessonLoadError}</p>}
     </div>
 
     {job?.status === "completed" && <div className="audio-analysis-results" aria-labelledby="audio-results-title">
@@ -229,6 +239,8 @@ export function AudioAnalysisPanel() {
         <div><span>Melody confidence</span><strong>{job.melody_confidence === null ? "Unknown" : `${Math.round(job.melody_confidence * 100)}%`}</strong></div>
       </div>
       <div className="audio-results-foot"><div><span>Rhythm engine</span><strong>{job.analysis_engine ?? "Unknown"}</strong></div><div><span>Melody engine</span><strong>{job.melody_engine ?? "Unknown"}</strong></div></div>
+      {job.note_events.length > 0 && <button type="button" className="audio-load-lesson-button" disabled={detectedLessonLoaded} onClick={() => { if (file && onLoadDetectedLesson) onLoadDetectedLesson(file, job); }}>{detectedLessonLoaded ? <><Check size={15} /> Loaded into lesson</> : <><ArrowRight size={15} /> Load detected lesson</>}</button>}
+      {job.melody_confidence !== null && job.melody_confidence < 0.5 && <p className="audio-low-confidence"><AlertTriangle size={14} /> Melody confidence is low. Playback is available, but note timing and pitch may be unreliable.</p>}
       {job.warnings.length > 0 && <div className="audio-warnings"><span className="audio-warning-label"><AlertTriangle size={14} /> Warnings</span><ul>{job.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></div>}
     </div>}
   </section>;

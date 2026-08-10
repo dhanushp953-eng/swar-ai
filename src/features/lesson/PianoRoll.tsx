@@ -29,7 +29,7 @@ export function PianoRoll({ events, currentTime, handMode, showNoteNames, showFi
         const height = Math.max(14, event.duration * PIXELS_PER_SECOND);
         const top = HIT_LINE - ((event.start - currentTime) * PIXELS_PER_SECOND) - height;
         const state = getNoteState(event, currentTime);
-        return <div key={event.id} className={`falling-note ${event.hand === "left" ? "left-hand" : "right-hand"} ${isPlaying && state === "active" ? "note-playing" : ""}`} style={{ left: `${position.left}%`, top, width: `${position.width}%`, height }} aria-label={`${event.name}, ${event.hand} hand${event.finger ? `, finger ${event.finger}` : ""}`}>
+        return <div key={event.id} className={`falling-note ${event.hand === null ? "detected-note" : event.hand === "left" ? "left-hand" : "right-hand"} ${isPlaying && state === "active" ? "note-playing" : ""}`} style={{ left: `${position.left}%`, top, width: `${position.width}%`, height }} aria-label={`${event.name}, ${event.hand === null ? "detected melody" : `${event.hand} hand`}${event.finger ? `, finger ${event.finger}` : ""}`}>
           {showNoteNames && <span>{event.name}</span>}
           {showFingerNumbers && event.finger && <b>{event.finger}</b>}
         </div>;

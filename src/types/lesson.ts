@@ -9,8 +9,8 @@ export type NoteEvent = {
   start: number;
   duration: number;
   velocity: number;
-  hand: LessonHand;
-  finger?: 1 | 2 | 3 | 4 | 5;
+  hand: LessonHand | null;
+  finger?: 1 | 2 | 3 | 4 | 5 | null;
 };
 
 export type LessonExercise = {
