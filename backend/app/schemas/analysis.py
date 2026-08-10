@@ -64,6 +64,26 @@ class RhythmAnalysis(BaseModel):
     analysis_version: str
 
 
+class MelodyNoteEvent(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    midi_note: int = Field(ge=0, le=127)
+    note_name: str = Field(min_length=1, max_length=8)
+    start_time: float = Field(ge=0)
+    duration: float = Field(gt=0)
+    velocity: int = Field(ge=1, le=127)
+    confidence: float = Field(ge=0, le=1)
+    hand: Literal["left", "right"] | None = None
+    finger: Literal[1, 2, 3, 4, 5] | None = None
+
+
+class MelodyAnalysis(BaseModel):
+    note_events: list[MelodyNoteEvent] = Field(default_factory=list)
+    melody_confidence: float = Field(ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+    melody_engine: str
+    melody_analysis_version: str
+
+
 class JobResponse(BaseModel):
     job_id: str
     status: AnalysisStatus
@@ -77,6 +97,10 @@ class JobResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     analysis_engine: str | None = None
     analysis_version: str | None = None
+    note_events: list[MelodyNoteEvent] = Field(default_factory=list)
+    melody_confidence: float | None = Field(default=None, ge=0, le=1)
+    melody_engine: str | None = None
+    melody_analysis_version: str | None = None
 
 
 class HealthResponse(BaseModel):

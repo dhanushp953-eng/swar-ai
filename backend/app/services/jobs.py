@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from threading import Lock
 
-from app.schemas.analysis import AnalysisResult, ErrorResponse, JobResponse, RhythmAnalysis
+from app.schemas.analysis import AnalysisResult, ErrorResponse, JobResponse, MelodyAnalysis, RhythmAnalysis
 
 
 @dataclass
@@ -12,8 +12,10 @@ class JobRecord:
     result: AnalysisResult | None = None
     error: ErrorResponse | None = None
     rhythm: RhythmAnalysis | None = None
+    melody: MelodyAnalysis | None = None
 
     def response(self) -> JobResponse:
+        warnings = list(dict.fromkeys((self.rhythm.warnings if self.rhythm else []) + (self.melody.warnings if self.melody else [])))
         return JobResponse(
             job_id=self.job_id,
             status=self.status,
@@ -24,9 +26,13 @@ class JobRecord:
             estimated_bpm=self.rhythm.estimated_bpm if self.rhythm else None,
             beat_timestamps=self.rhythm.beat_timestamps if self.rhythm else [],
             rhythm_confidence=self.rhythm.rhythm_confidence if self.rhythm else None,
-            warnings=self.rhythm.warnings if self.rhythm else [],
+            warnings=warnings,
             analysis_engine=self.rhythm.analysis_engine if self.rhythm else None,
             analysis_version=self.rhythm.analysis_version if self.rhythm else None,
+            note_events=self.melody.note_events if self.melody else [],
+            melody_confidence=self.melody.melody_confidence if self.melody else None,
+            melody_engine=self.melody.melody_engine if self.melody else None,
+            melody_analysis_version=self.melody.melody_analysis_version if self.melody else None,
         )
 
 
@@ -45,7 +51,7 @@ class JobStore:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def update(self, job_id: str, *, status: str | None = None, progress: int | None = None, result: AnalysisResult | None = None, error: ErrorResponse | None = None, rhythm: RhythmAnalysis | None = None) -> JobRecord:
+    def update(self, job_id: str, *, status: str | None = None, progress: int | None = None, result: AnalysisResult | None = None, error: ErrorResponse | None = None, rhythm: RhythmAnalysis | None = None, melody: MelodyAnalysis | None = None) -> JobRecord:
         with self._lock:
             record = self._jobs[job_id]
             if status is not None:
@@ -58,4 +64,6 @@ class JobStore:
                 record.error = error
             if rhythm is not None:
                 record.rhythm = rhythm
+            if melody is not None:
+                record.melody = melody
             return record

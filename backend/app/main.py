@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.core.errors import AnalysisError
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
 from app.services.jobs import JobStore
+from app.services.melody_analysis import MelodyTranscriptionService
 from app.services.rhythm_analysis import RhythmAnalysisService
 from app.services.upload import staged_upload
 
@@ -19,11 +20,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=active_settings.app_name,
         version=active_settings.analysis_version,
-        description="Phase 3C validates authorised local audio and estimates rhythm locally with librosa.",
+        description="Phase 3D validates authorised local audio and estimates rhythm and monophonic melody locally with librosa.",
     )
     app.state.settings = active_settings
     app.state.jobs = JobStore()
     app.state.rhythm_analyzer = RhythmAnalysisService(active_settings)
+    app.state.melody_analyzer = MelodyTranscriptionService(active_settings)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_cors_origins,
@@ -49,9 +51,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status="ok",
             analysis_version=active_settings.analysis_version,
             ffmpeg_available=shutil.which(active_settings.ffmpeg_binary) is not None,
-            active_transcription_engine="librosa-rhythm-only",
+            active_transcription_engine="librosa.pyin",
             basic_pitch_available=False,
-            basic_pitch_reason="Basic Pitch is intentionally not installed; this phase only estimates rhythm.",
+            basic_pitch_reason="Basic Pitch is intentionally not installed; Phase 3D uses librosa.pyin with a librosa.yin fallback.",
         )
 
     @app.post("/api/analyze", response_model=JobResponse, status_code=201, tags=["analysis"])
@@ -67,7 +69,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 jobs.update(job_id, status="validated", progress=25)
                 jobs.update(job_id, status="processing", progress=40)
                 rhythm = app.state.rhythm_analyzer.analyze(staged_path)
-                jobs.update(job_id, status="completed", progress=100, rhythm=rhythm)
+                melody = app.state.melody_analyzer.analyze(staged_path)
+                jobs.update(job_id, status="completed", progress=100, rhythm=rhythm, melody=melody)
         except AnalysisError as error:
             if record is not None:
                 jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code=error.code, message=error.message, details=error.details))
