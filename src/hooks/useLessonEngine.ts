@@ -300,16 +300,22 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       if (phaseRef.current === "count-in") {
         const beat = getBeatDuration(exercise.bpm, speedRef.current);
         const elapsed = getTransport().seconds - transportStartRef.current;
+        let justFinishedCountIn = false;
         if (elapsed >= getCountInDuration(exercise.bpm, speedRef.current)) {
           countInRef.current = false;
           phaseRef.current = "playing";
           setEngineStatus("playing");
           setCountInBeat(0);
+          justFinishedCountIn = true;
         } else {
           setCountInBeat(Math.min(4, Math.floor(elapsed / beat) + 1));
         }
+        setEngineTime(justFinishedCountIn
+          ? getLessonTimeFromClock(elapsed, lessonStartRef.current, speedRef.current, getCountInDuration(exercise.bpm, speedRef.current), exercise.duration)
+          : getRunningTime());
+      } else {
+        setEngineTime(getRunningTime());
       }
-      setEngineTime(getRunningTime());
     }
     tickerRef.current = window.requestAnimationFrame(tickRef.current);
   }, [audioRef, clearScheduled, exercise.bpm, exercise.duration, getAudioLessonTime, getRunningTime, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);

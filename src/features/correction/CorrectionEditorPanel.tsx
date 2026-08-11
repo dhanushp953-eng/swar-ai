@@ -120,9 +120,11 @@ type CorrectionEditorPanelProps = {
   session: CorrectionSession;
   derived: CorrectionDerivedState;
   onClose: () => void;
+  lessonLabel?: string;
+  sourceAdjective?: "detected" | "imported";
 };
 
-export function CorrectionEditorPanel({ api, session, derived, onClose }: CorrectionEditorPanelProps) {
+export function CorrectionEditorPanel({ api, session, derived, onClose, lessonLabel = "Detected lesson", sourceAdjective = "detected" }: CorrectionEditorPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [step, setStep] = useState(DEFAULT_MOVE_STEP);
   const [task, setTask] = useState<Task>(null);
@@ -134,6 +136,9 @@ export function CorrectionEditorPanel({ api, session, derived, onClose }: Correc
   const editedIds = useMemo(() => new Set(derived.editedNoteIds), [derived.editedNoteIds]);
   const addedIds = useMemo(() => new Set(derived.addedNoteIds), [derived.addedNoteIds]);
   const resetStatus: ResetSelectedStatus = getResetSelectedStatus(selectedNote ? selectedNote.id : null, derived.editedNoteIds, derived.addedNoteIds);
+  const originResetPhrase = sourceAdjective === "imported" ? "imported value" : "detection";
+  const resetValuePhrase = `${sourceAdjective} value`;
+  const resetAllMessage = sourceAdjective === "imported" ? "This restores every corrected note to the originally imported lesson. You can undo this afterwards." : "This restores every corrected note to the original detected analysis. You can undo this afterwards.";
 
   const safeStep = Number.isFinite(step) && step > 0 ? step : DEFAULT_MOVE_STEP;
 
@@ -192,11 +197,11 @@ export function CorrectionEditorPanel({ api, session, derived, onClose }: Correc
   };
 
   return (
-    <div className="correction-editor" role="region" aria-label="Detected lesson correction editor">
+    <div className="correction-editor" role="region" aria-label={`${lessonLabel} correction editor`}>
       <div className="correction-editor-header">
         <div>
           <p className="eyebrow">Correction editor</p>
-          <h3>Detected lesson</h3>
+          <h3>{lessonLabel}</h3>
         </div>
         <div className="correction-status">
           <span className="correction-chip correction-chip-count">
@@ -317,6 +322,7 @@ export function CorrectionEditorPanel({ api, session, derived, onClose }: Correc
                   onToggleStep={(value) => setStep(value)}
                   onDelete={handleDelete}
                   onReset={handleResetSelected}
+                  originResetPhrase={originResetPhrase}
                 />
               ) : (
                 <p className="correction-empty-fields">Select a note to edit its pitch, timing and velocity.</p>
@@ -358,7 +364,7 @@ export function CorrectionEditorPanel({ api, session, derived, onClose }: Correc
       {task === "reset-all" && (
         <ConfirmDialog
           title="Reset the whole lesson?"
-          message="This restores every corrected note to the original detected analysis. You can undo this afterwards."
+          message={resetAllMessage}
           confirmLabel="Reset lesson"
           onCancel={() => setTask(null)}
           onConfirm={() => {
@@ -370,7 +376,7 @@ export function CorrectionEditorPanel({ api, session, derived, onClose }: Correc
       {task === "reset-note" && selectedNote && (
         <ConfirmDialog
           title="Reset note?"
-          message={`Restore ${selectedNote.name} (note ${selectedIndex + 1} of ${noteCount}) to its original detected value? This change can be undone after resetting.`}
+          message={`Restore ${selectedNote.name} (note ${selectedIndex + 1} of ${noteCount}) to its original ${resetValuePhrase}? This change can be undone after resetting.`}
           confirmLabel="Reset note"
           onCancel={() => setTask(null)}
           onConfirm={() => {
@@ -395,8 +401,9 @@ function SelectedNoteFields(props: {
   onToggleStep: (value: number) => void;
   onDelete: () => void;
   onReset: () => void;
+  originResetPhrase: string;
 }) {
-  const { note, api, selectedIndex, noteCount, safeStep, resetStatus, onMoveEarlier, onMoveLater, onToggleStep, onDelete, onReset } = props;
+  const { note, api, selectedIndex, noteCount, safeStep, resetStatus, onMoveEarlier, onMoveLater, onToggleStep, onDelete, onReset, originResetPhrase } = props;
   return (
     <>
       <div className="correction-selected-heading">
@@ -482,10 +489,10 @@ function SelectedNoteFields(props: {
         </button>
       </div>
       {!resetStatus.enabled && resetStatus.reason === "added" && (
-        <p className="correction-reset-hint">This note was added, so it has no original detection to reset to. Use &ldquo;Delete note&rdquo; to remove it instead.</p>
+        <p className="correction-reset-hint">{`This note was added, so it has no original ${originResetPhrase} to reset to. Use \u201CDelete note\u201D to remove it instead.`}</p>
       )}
       {!resetStatus.enabled && resetStatus.reason === "not-edited" && (
-        <p className="correction-reset-hint">This note already matches its original detection, so there is nothing to reset.</p>
+        <p className="correction-reset-hint">{`This note already matches its original ${originResetPhrase}, so there is nothing to reset.`}</p>
       )}
       <button type="button" className="correction-btn danger correction-delete-btn" onClick={onDelete}>
         <Trash2 size={14} /> Delete note

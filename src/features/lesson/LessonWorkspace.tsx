@@ -1,7 +1,7 @@
 "use client";
 
 import { Pause, Pencil, Play, Repeat2, RotateCcw, TimerReset } from "lucide-react";
-import { useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { demoExercises } from "@/data/demo-exercises";
 import { Piano } from "@/components/piano";
 import { type OutputMode, useLessonEngine } from "@/hooks/useLessonEngine";
@@ -12,8 +12,9 @@ import { PLAYBACK_SPEEDS } from "@/utils/lesson-timing";
 import { PianoRoll } from "@/features/lesson/PianoRoll";
 import { getLessonSelectOptions, resolveLessonSelection } from "@/features/lesson/lesson-selection";
 import { CorrectionEditorPanel } from "@/features/correction/CorrectionEditorPanel";
-import { canEditDetectedLesson } from "@/features/correction/correction-session";
-import { useCorrectionEditor } from "@/features/correction/useCorrectionEditor";
+import { type CorrectionSource, useCorrectionEditor } from "@/features/correction/useCorrectionEditor";
+import { ExportLessonControls } from "@/features/lesson/ExportLessonControls";
+import { useLessonExport } from "@/features/lesson/useLessonExport";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -21,38 +22,60 @@ function formatTime(seconds: number) {
   return `${minutes}:${remainder}`;
 }
 
-export function LessonWorkspace({ detectedLesson, detectedObjectUrl, detectedAudioRef }: { detectedLesson?: DetectedLesson | null; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null> }) {
-  const [lessonId, setLessonId] = useState(() => detectedLesson ? "detected" : demoExercises[0].id);
+type LessonSourceMode = "detected" | "imported" | "demo";
+
+export function LessonWorkspace({ detectedLesson, detectedObjectUrl, detectedAudioRef, importedLesson, importedLessonKey }: { detectedLesson?: DetectedLesson | null; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null>; importedLesson?: LessonExercise | null; importedLessonKey?: string | null }) {
+  const [lessonId, setLessonId] = useState(() => detectedLesson ? "detected" : importedLesson ? "imported" : demoExercises[0].id);
   const [editMode, setEditMode] = useState(false);
-  const selection = resolveLessonSelection(lessonId, detectedLesson, demoExercises);
-  const correction = useCorrectionEditor(detectedLesson ?? null);
-  const canEdit = canEditDetectedLesson({ isDetected: selection.isDetected, detectedLesson: detectedLesson ?? null });
-  const exercise = selection.isDetected && correction.exercise ? correction.exercise : selection.exercise;
+  const previousImportKey = useRef<string | null | undefined>(importedLessonKey);
+  useEffect(() => {
+    if (importedLesson && importedLessonKey !== previousImportKey.current) {
+      previousImportKey.current = importedLessonKey;
+      setLessonId("imported");
+      setEditMode(false);
+    }
+  }, [importedLesson, importedLessonKey]);
+  const selection = resolveLessonSelection(lessonId, detectedLesson, demoExercises, importedLesson);
+  const correctionSource: CorrectionSource | null = selection.origin === "detected" && detectedLesson
+    ? { origin: "detected", sourceKey: detectedLesson.exercise.id, exercise: detectedLesson.exercise }
+    : selection.origin === "imported" && importedLesson
+      ? { origin: "imported", sourceKey: importedLessonKey ?? importedLesson.id, exercise: importedLesson }
+      : null;
+  const correction = useCorrectionEditor(correctionSource);
+  const canEdit = selection.origin === "detected" || selection.origin === "imported";
+  const exercise = correction.exercise ?? selection.exercise;
+  const sourceMode = selection.origin as LessonSourceMode;
+  const canExportOriginal = sourceMode === "detected" && Boolean(detectedLesson);
+  const lessonExport = useLessonExport({ original: () => detectedLesson?.exercise ?? null, current: () => exercise });
   const handleExerciseChange = (id: string) => {
     setLessonId(id);
     setEditMode(false);
   };
   return <>
-    {canEdit && editMode && correction.session && correction.derived && <CorrectionEditorPanel api={correction.api} session={correction.session} derived={correction.derived} onClose={() => setEditMode(false)} />}
-    <LessonSession key={`${selection.isDetected ? "detected" : "demo"}-${selection.exercise.id}`} exercise={exercise} onExerciseChange={handleExerciseChange} isDetected={selection.isDetected} detectedLesson={detectedLesson} detectedObjectUrl={detectedObjectUrl} detectedAudioRef={detectedAudioRef} canEditDetected={canEdit} correctionDirty={correction.derived?.dirty ?? false} correctionCount={correction.derived?.correctionCount ?? 0} editing={editMode} onEditDetected={() => setEditMode(true)} />;
+    {canEdit && editMode && correction.session && correction.derived && <CorrectionEditorPanel api={correction.api} session={correction.session} derived={correction.derived} onClose={() => setEditMode(false)} lessonLabel={sourceMode === "imported" ? "Imported lesson" : "Detected lesson"} sourceAdjective={sourceMode === "imported" ? "imported" : "detected"} />}
+    <LessonSession key={`${selection.origin}-${selection.exercise.id}`} exercise={exercise} onExerciseChange={handleExerciseChange} sourceMode={sourceMode} detectedLesson={detectedLesson} detectedObjectUrl={detectedObjectUrl} detectedAudioRef={detectedAudioRef} importedLesson={importedLesson} canEdit={canEdit} correctionDirty={correction.derived?.dirty ?? false} correctionCount={correction.derived?.correctionCount ?? 0} editing={editMode} onEdit={() => setEditMode(true)} exportState={lessonExport.state} canExportOriginal={canExportOriginal} onExportOriginal={lessonExport.exportOriginal} onExportCurrent={lessonExport.exportCurrent} />;
   </>;
 }
 
-function LessonSession({ exercise, onExerciseChange, isDetected, detectedLesson, detectedObjectUrl, detectedAudioRef, canEditDetected, correctionDirty, correctionCount, editing, onEditDetected }: { exercise: LessonExercise; onExerciseChange: (id: string) => void; isDetected: boolean; detectedLesson: DetectedLesson | null | undefined; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null>; canEditDetected: boolean; correctionDirty: boolean; correctionCount: number; editing: boolean; onEditDetected: () => void }) {
+function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson, detectedObjectUrl, detectedAudioRef, importedLesson, canEdit, correctionDirty, correctionCount, editing, onEdit, exportState, canExportOriginal, onExportOriginal, onExportCurrent }: { exercise: LessonExercise; onExerciseChange: (id: string) => void; sourceMode: LessonSourceMode; detectedLesson: DetectedLesson | null | undefined; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null>; importedLesson?: LessonExercise | null; canEdit: boolean; correctionDirty: boolean; correctionCount: number; editing: boolean; onEdit: () => void; exportState: ReturnType<typeof useLessonExport>["state"]; canExportOriginal: boolean; onExportOriginal: () => void; onExportCurrent: () => void }) {
   const [showNoteNames, setShowNoteNames] = useState(true);
   const [showFingerNumbers, setShowFingerNumbers] = useState(true);
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioRef = detectedAudioRef ?? localAudioRef;
+  const isDetected = sourceMode === "detected";
   const engine = useLessonEngine(exercise, { audioFile: isDetected ? detectedLesson?.audioFile : null, audioRef, objectUrl: isDetected ? detectedObjectUrl ?? null : null });
   const activeMidi = useMemo(() => engine.status === "playing" || engine.status === "paused" ? getActiveMidi(exercise.events, engine.currentTime, engine.handMode) : new Set<number>(), [engine.currentTime, engine.handMode, engine.status, exercise.events]);
   const display = useMemo(() => getCurrentMusicalDisplay(exercise.events, engine.currentTime, engine.handMode), [engine.currentTime, engine.handMode, exercise.events]);
   const isPlaying = engine.status === "playing" || engine.status === "count-in";
   const statusLabel = engine.status === "count-in" ? "Count-in" : engine.status === "complete" ? "Complete" : engine.status === "paused" ? "Paused" : engine.status === "playing" ? "Playing" : "Ready";
-  const bpmLabel = isDetected ? detectedLesson?.estimatedBpm === null ? "Unknown" : Math.round(detectedLesson?.estimatedBpm ?? 0) : exercise.bpm;
+  const bpmLabel = isDetected ? detectedLesson?.estimatedBpm === null ? "Unknown" : Math.round(detectedLesson?.estimatedBpm ?? 0) : exercise.bpm === 0 ? "Unknown" : Math.round(exercise.bpm);
+  const selectValue = sourceMode === "detected" ? "detected" : sourceMode === "imported" ? "imported" : exercise.id;
+  const editLabel = sourceMode === "imported" ? "Edit imported lesson" : "Edit detected lesson";
 
   return <div className="lesson-workspace lesson-engine">
     <div className="workspace-top"><div><span className="status-dot" />Lesson workspace <span className="muted">/ {statusLabel.toLowerCase()}</span></div><div className="workspace-actions"><button type="button" onClick={engine.restart} aria-label="Restart lesson"><RotateCcw size={16} /></button><button type="button" onClick={isPlaying ? engine.pause : engine.play} aria-label={isPlaying ? "Pause lesson" : "Play lesson"}>{isPlaying ? <Pause size={16} /> : <Play size={16} />}</button></div></div>
-    <div className="lesson-topline"><label className="lesson-select">Lesson<select aria-label="Lesson selection" value={isDetected ? "detected" : exercise.id} onChange={(event) => onExerciseChange(event.target.value)}>{getLessonSelectOptions(detectedLesson, demoExercises).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><div className="lesson-topline-copy"><p>{isDetected ? <strong className="detected-lesson-label">Detected from your audio.</strong> : exercise.description}</p>{canEditDetected && <button type="button" className={`correction-open-btn ${editing ? "is-active" : ""}`} onClick={onEditDetected}><Pencil size={13} /> Edit detected lesson{correctionDirty ? ` · ${correctionCount} change${correctionCount === 1 ? "" : "s"}` : ""}</button>}</div><div className="lesson-meta"><span>{bpmLabel === "Unknown" ? "BPM unknown" : `${bpmLabel} BPM`}</span><span>{isDetected ? `${exercise.events.length} notes` : `${exercise.beatsPerMeasure}/4`}</span></div></div>
+    <div className="lesson-topline"><label className="lesson-select">Lesson<select aria-label="Lesson selection" value={selectValue} onChange={(event) => onExerciseChange(event.target.value)}>{getLessonSelectOptions(detectedLesson, demoExercises, importedLesson).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><div className="lesson-topline-copy"><p>{isDetected ? <strong className="detected-lesson-label">Detected from your audio.</strong> : exercise.description}</p>{canEdit && <button type="button" className={`correction-open-btn ${editing ? "is-active" : ""}`} onClick={onEdit}><Pencil size={13} /> {editLabel}{correctionDirty ? ` · ${correctionCount} change${correctionCount === 1 ? "" : "s"}` : ""}</button>}</div><div className="lesson-meta"><span>{bpmLabel === "Unknown" ? "BPM unknown" : `${bpmLabel} BPM`}</span><span>{isDetected || sourceMode === "imported" ? `${exercise.events.length} notes` : `${exercise.beatsPerMeasure}/4`}</span></div></div>
+    {(sourceMode === "detected" || sourceMode === "imported") && <ExportLessonControls state={exportState} canExportOriginal={canExportOriginal} correctionCount={correctionCount} onExportOriginal={onExportOriginal} onExportCurrent={onExportCurrent} />}
     <div className="lesson-reading"><div><span>{display.label}</span><strong>{display.value}</strong></div><div className="hand-legend">{isDetected ? <span className="legend-detected">Detected melody</span> : <><span className="legend-left">Left hand</span><span className="legend-right">Right hand</span></>}</div></div>
     <Piano lessonActiveMidi={activeMidi} lessonRoll={<PianoRoll events={exercise.events} currentTime={engine.currentTime} handMode={engine.handMode} showNoteNames={showNoteNames} showFingerNumbers={showFingerNumbers} countInBeat={engine.countInBeat} isPlaying={engine.status === "playing"} />} />
     {isDetected && <div className="detected-audio-controls"><audio ref={audioRef} preload="metadata" aria-label="Original uploaded audio" /><div className="detected-audio-heading"><span><span className="eyebrow">Master clock</span><strong>Original audio</strong></span><span>{detectedLesson?.melodyConfidence === null ? "Confidence unknown" : `${Math.round((detectedLesson?.melodyConfidence ?? 0) * 100)}% melody confidence`}</span></div><div className="detected-audio-options"><label>Output mode<select value={engine.outputMode} onChange={(event) => engine.setOutputMode(event.target.value as OutputMode)}><option value="both">Both</option><option value="original">Original audio</option><option value="piano">Generated piano</option></select></label><label>Original volume<input aria-label="Original audio volume" type="range" min="0" max="1" step="0.01" value={engine.originalVolume} onChange={(event) => engine.setOriginalVolume(Number(event.target.value))} /></label><label>Generated piano volume<input aria-label="Generated piano volume" type="range" min="-30" max="0" value={engine.generatedVolume} onChange={(event) => engine.setGeneratedVolume(Number(event.target.value))} /></label><label>Sync offset <output>{engine.syncOffsetMs} ms</output><input aria-label="Synchronization offset" type="range" min="-500" max="500" step="10" value={engine.syncOffsetMs} onChange={(event) => engine.setSyncOffsetMs(Number(event.target.value))} /></label><button type="button" className="audio-sync-reset" onClick={() => engine.setSyncOffsetMs(0)}>Reset offset</button></div>{!engine.preservesPitchSupported && <p className="audio-limitation">Pitch preservation is not supported by this browser; changing speed may change the original audio pitch.</p>}{engine.audioError && <p className="audio-form-error" role="alert">{engine.audioError}</p>}</div>}

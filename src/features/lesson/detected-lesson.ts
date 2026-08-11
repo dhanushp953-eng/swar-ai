@@ -1,6 +1,7 @@
 import type { AnalysisJob, MelodyNoteEvent } from "../../lib/audio-api";
 import type { LessonExercise, NoteEvent } from "../../types/lesson";
 import { midiToNote } from "../../utils/music";
+import { MAX_LESSON_BPM, MIN_LESSON_BPM } from "./lesson-transfer";
 
 export type DetectedLesson = {
   exercise: LessonExercise;
@@ -12,6 +13,19 @@ export type DetectedLesson = {
 
 function isFiniteNumber(value: number): boolean {
   return Number.isFinite(value);
+}
+
+/**
+ * Normalizes the estimated BPM so a detected lesson always satisfies the
+ * lesson transfer format, which only allows a whole number in range or 0
+ * ("unknown"). Analysis backends report fractional estimates, so the value is
+ * rounded (matching the workspace readout) and any out-of-range result is
+ * treated as unknown rather than blocking export.
+ */
+function normalizeDetectedBpm(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  const rounded = Math.round(value);
+  return rounded >= MIN_LESSON_BPM && rounded <= MAX_LESSON_BPM ? rounded : 0;
 }
 
 function validateEvent(event: MelodyNoteEvent, index: number): string | null {
@@ -50,7 +64,7 @@ export function convertAnalysisJobToDetectedLesson(file: File, job: AnalysisJob)
     id: `detected-${job.job_id}`,
     title: "Detected melody",
     description: "Detected from your audio. Hand and finger assignments remain unassigned.",
-    bpm: job.estimated_bpm ?? 0,
+    bpm: normalizeDetectedBpm(job.estimated_bpm),
     beatsPerMeasure: 4,
     duration,
     events,

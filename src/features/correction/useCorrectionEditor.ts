@@ -1,10 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import type { DetectedLesson } from "../lesson/detected-lesson";
 import type { CorrectionDerivedState, CorrectionNoteInput } from "./correction-engine";
-import { CorrectionSession, createCorrectionSession } from "./correction-session";
+import { CorrectionSession } from "./correction-session";
 import type { LessonExercise } from "../../types/lesson";
+
+/**
+ * Identifies the lesson the correction editor is currently editing. Detected
+ * and imported lessons are both editable; demo lessons are read-only and pass
+ * null. The sourceKey changes whenever a brand new lesson is loaded (a new
+ * audio analysis, or a fresh file import) so corrections never carry over
+ * between unrelated lessons.
+ */
+export type CorrectionSource = {
+  origin: "detected" | "imported";
+  sourceKey: string;
+  exercise: LessonExercise;
+};
 
 export type CorrectionEditorApi = {
   select: (id: string | null) => void;
@@ -27,24 +39,25 @@ export type CorrectionEditorApi = {
 };
 
 /**
- * Owns the correction session for the currently loaded detected lesson.
- * The session is created on mount (and whenever the detected lesson changes,
- * so corrections survive exiting edit mode but start clean for a new upload)
- * and becomes null when no detected lesson is loaded. The session object is
- * mutated in place by the engine operations and a version counter forces the
- * UI to re-read the fresh derived state, so the corrected exercise returned
- * here always drives the lesson engine, visualiser and generated piano.
+ * Owns the correction session for the currently editable lesson (detected or
+ * imported). The session is created on mount and whenever the source key
+ * changes, so corrections survive exiting edit mode and switching between
+ * lessons, but start clean for a new upload or file import. The session object
+ * is mutated in place by the engine operations and a version counter forces
+ * the UI to re-read the fresh derived state, so the corrected exercise
+ * returned here always drives the lesson engine, visualiser and generated
+ * piano.
  */
-export function useCorrectionEditor(detectedLesson: DetectedLesson | null) {
-  const [session, setSession] = useState<CorrectionSession | null>(() => createCorrectionSession(detectedLesson));
-  const [loadedLesson, setLoadedLesson] = useState(detectedLesson);
-  const [, setVersion] = useState(0);
+export function useCorrectionEditor(source: CorrectionSource | null) {
+  const [session, setSession] = useState<CorrectionSession | null>(() => (source ? new CorrectionSession(source.exercise) : null));
+  const [loadedKey, setLoadedKey] = useState<string | null>(source?.sourceKey ?? null);
 
-  if (loadedLesson !== detectedLesson) {
-    setLoadedLesson(detectedLesson);
-    setSession(createCorrectionSession(detectedLesson));
+  if ((source?.sourceKey ?? null) !== loadedKey) {
+    setLoadedKey(source?.sourceKey ?? null);
+    setSession(source ? new CorrectionSession(source.exercise) : null);
   }
 
+  const [, setVersion] = useState(0);
   const refresh = () => setVersion((version) => version + 1);
 
   const run = <T,>(op: (current: CorrectionSession) => T): T | undefined => {

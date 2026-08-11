@@ -51,9 +51,7 @@ function createApi(session: CorrectionSession): CorrectionEditorApi {
 function renderPanel(session: CorrectionSession): string {
   const onClose = vi.fn();
   return renderToString(<CorrectionEditorPanel api={createApi(session)} session={session} derived={session.getDerived()} onClose={onClose} />);
-}
-
-function resetButtonHtml(html: string): string {
+}function resetButtonHtml(html: string): string {
   const marker = "correction-reset-note-btn";
   const idx = html.indexOf(marker);
   if (idx === -1) return "";
@@ -100,5 +98,45 @@ describe("CorrectionEditorPanel reset selected note button", () => {
     expect(resetButtonHtml(html)).toContain('disabled=""');
     expect(resetButtonHtml(html)).toContain('aria-disabled="true"');
     expect(html).toContain("has no original detection");
+  });
+});
+
+describe("CorrectionEditorPanel for an imported lesson", () => {
+  function renderImported(session: CorrectionSession): string {
+    return renderToString(
+      <CorrectionEditorPanel
+        api={createApi(session)}
+        session={session}
+        derived={session.getDerived()}
+        onClose={vi.fn()}
+        lessonLabel="Imported lesson"
+        sourceAdjective="imported"
+      />,
+    );
+  }
+
+  it("labels the panel with the imported lesson heading", () => {
+    const session = new CorrectionSession(makeExercise());
+    session.select("n2");
+    const html = renderImported(session);
+    expect(html).toContain("aria-label=\"Imported lesson correction editor\"");
+    expect(html).toContain("<h3>Imported lesson</h3>");
+  });
+
+  it("explains resetting against the originally imported notes", () => {
+    const session = new CorrectionSession(makeExercise());
+    session.select("n2");
+    const html = renderImported(session);
+    expect(html).toContain("matches its original imported value");
+    expect(html).not.toContain("matches its original detection");
+  });
+
+  it("uses imported wording when a note has no original to reset to", () => {
+    const session = new CorrectionSession(makeExercise());
+    const id = session.addNote({ midi: 69, start: 2.6, duration: 0.4, velocity: 88 });
+    session.select(id as string);
+    const html = renderImported(session);
+    expect(html).toContain("has no original imported value");
+    expect(html).not.toContain("has no original detection");
   });
 });

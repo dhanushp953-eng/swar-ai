@@ -4,7 +4,7 @@ import { convertAnalysisJobToDetectedLesson } from "./detected-lesson";
 
 const file = new File([new Uint8Array([1, 2, 3])], "melody.wav", { type: "audio/wav" });
 
-function job(noteEvents: AnalysisJob["note_events"]): AnalysisJob {
+function job(noteEvents: AnalysisJob["note_events"], estimated_bpm: number | null = 120): AnalysisJob {
   return {
     job_id: "job-1",
     status: "completed",
@@ -12,7 +12,7 @@ function job(noteEvents: AnalysisJob["note_events"]): AnalysisJob {
     result: null,
     error: null,
     duration: 2,
-    estimated_bpm: 120,
+    estimated_bpm,
     beat_timestamps: [],
     rhythm_confidence: 0.9,
     warnings: ["local warning"],
@@ -53,5 +53,20 @@ describe("detected lesson conversion", () => {
     const converted = convertAnalysisJobToDetectedLesson(file, job([]));
     expect(converted.lesson).toBeNull();
     expect(converted.error).toContain("No detected melody");
+  });
+
+  it("rounds a fractional estimated BPM to a valid whole number", () => {
+    const converted = convertAnalysisJobToDetectedLesson(file, job([note()], 123.456));
+    expect(converted.lesson?.exercise.bpm).toBe(123);
+  });
+
+  it("treats an out-of-range estimated BPM as unknown so the lesson can export", () => {
+    const converted = convertAnalysisJobToDetectedLesson(file, job([note()], 12.5));
+    expect(converted.lesson?.exercise.bpm).toBe(0);
+  });
+
+  it("treats a missing estimated BPM as unknown", () => {
+    const converted = convertAnalysisJobToDetectedLesson(file, job([note()], null));
+    expect(converted.lesson?.exercise.bpm).toBe(0);
   });
 });
