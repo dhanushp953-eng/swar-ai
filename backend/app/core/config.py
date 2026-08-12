@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -7,6 +7,41 @@ def _env_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(value: str | None, default: int, minimum: int, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value) if value is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    parsed = max(minimum, parsed)
+    return min(parsed, maximum) if maximum is not None else parsed
+
+
+def _env_float(value: str | None, default: float, minimum: float, maximum: float | None = None) -> float:
+    try:
+        parsed = float(value) if value is not None else default
+    except (TypeError, ValueError):
+        parsed = default
+    parsed = max(minimum, parsed)
+    return min(parsed, maximum) if maximum is not None else parsed
+
+
+def _env_string(value: str | None, default: str) -> str:
+    candidate = (value or "").strip()
+    return candidate or default
+
+
+def _provider_priority(value: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
+    allowed = {"gemini", "groq", "mock"}
+    seen: set[str] = set()
+    parsed = []
+    for item in (value or "").split(","):
+        provider = item.strip().lower()
+        if provider in allowed and provider not in seen:
+            seen.add(provider)
+            parsed.append(provider)
+    return tuple(parsed) or default
 
 
 @dataclass(frozen=True)
@@ -30,6 +65,18 @@ class Settings:
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
     transcription_engine: str = "auto"
     basic_pitch_enabled: bool = False
+    gemini_api_key: str | None = field(default=None, repr=False, compare=False)
+    groq_api_key: str | None = field(default=None, repr=False, compare=False)
+    gemini_model: str = "gemini-2.0-flash"
+    groq_model: str = "llama-3.1-8b-instant"
+    ai_request_timeout_seconds: float = 15.0
+    ai_retry_limit: int = 1
+    ai_provider_priority: tuple[str, ...] = ("gemini", "groq", "mock")
+    ai_max_prompt_chars: int = 4000
+    ai_max_response_chars: int = 4000
+    ai_max_response_bytes: int = 64 * 1024
+    ai_max_output_tokens: int = 512
+    ai_mock_fallback_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -56,6 +103,18 @@ class Settings:
             cors_origins=os.getenv("CORS_ORIGINS", cls.cors_origins),
             transcription_engine=engine,
             basic_pitch_enabled=_env_bool(os.getenv("BASIC_PITCH_ENABLED"), cls.basic_pitch_enabled),
+            gemini_api_key=(os.getenv("GEMINI_API_KEY") or "").strip() or None,
+            groq_api_key=(os.getenv("GROQ_API_KEY") or "").strip() or None,
+            gemini_model=_env_string(os.getenv("GEMINI_MODEL"), cls.gemini_model),
+            groq_model=_env_string(os.getenv("GROQ_MODEL"), cls.groq_model),
+            ai_request_timeout_seconds=_env_float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS"), cls.ai_request_timeout_seconds, 0.1, 120.0),
+            ai_retry_limit=_env_int(os.getenv("AI_RETRY_LIMIT"), cls.ai_retry_limit, 0, 5),
+            ai_provider_priority=_provider_priority(os.getenv("AI_PROVIDER_PRIORITY"), cls.ai_provider_priority),
+            ai_max_prompt_chars=_env_int(os.getenv("AI_MAX_PROMPT_CHARS"), cls.ai_max_prompt_chars, 1, 100_000),
+            ai_max_response_chars=_env_int(os.getenv("AI_MAX_RESPONSE_CHARS"), cls.ai_max_response_chars, 1, 100_000),
+            ai_max_response_bytes=_env_int(os.getenv("AI_MAX_RESPONSE_BYTES"), cls.ai_max_response_bytes, 1, 1_048_576),
+            ai_max_output_tokens=_env_int(os.getenv("AI_MAX_OUTPUT_TOKENS"), cls.ai_max_output_tokens, 1, 4096),
+            ai_mock_fallback_enabled=_env_bool(os.getenv("AI_MOCK_FALLBACK_ENABLED"), cls.ai_mock_fallback_enabled),
         )
 
     @property

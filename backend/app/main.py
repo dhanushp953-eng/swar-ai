@@ -8,14 +8,30 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
 from app.core.errors import AnalysisError
+from app.schemas.ai import AIGenerateRequest, AIGenerateResponse, AIProviderStatusResponse
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
+from app.services.ai import AIRequest, AIService, GeminiProvider, GroqProvider, MockProvider, ProviderError
 from app.services.jobs import JobStore
 from app.services.melody_analysis import MelodyTranscriptionService
 from app.services.rhythm_analysis import RhythmAnalysisService
 from app.services.upload import staged_upload
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def _ai_error(error: ProviderError) -> AnalysisError:
+    if error.kind == "invalid_request":
+        return AnalysisError("ai_invalid_request", "The AI request contains unsupported or unsafe input.", 422)
+    if error.kind == "timeout":
+        return AnalysisError("ai_timeout", "The AI providers did not respond in time.", 503)
+    if error.kind == "invalid_response":
+        return AnalysisError("ai_invalid_response", "The AI provider returned an invalid response.", 502)
+    if error.kind == "rate_limited":
+        return AnalysisError("ai_rate_limited", "The AI providers are temporarily rate limited.", 429)
+    if error.kind == "response_too_large":
+        return AnalysisError("ai_response_too_large", "The AI provider response exceeded the configured limit.", 502)
+    return AnalysisError("ai_unavailable", "The AI service is temporarily unavailable.", 503)
+
+
+def create_app(settings: Settings | None = None, ai_service: AIService | None = None) -> FastAPI:
     active_settings = settings or Settings.from_env()
     app = FastAPI(
         title=active_settings.app_name,
@@ -26,6 +42,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.jobs = JobStore()
     app.state.rhythm_analyzer = RhythmAnalysisService(active_settings)
     app.state.melody_analyzer = MelodyTranscriptionService(active_settings)
+    app.state.ai_service = ai_service or AIService(
+        active_settings,
+        [
+            GeminiProvider(active_settings.gemini_api_key, active_settings.gemini_model),
+            GroqProvider(active_settings.groq_api_key, active_settings.groq_model),
+            MockProvider(),
+        ],
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_cors_origins,
@@ -54,6 +78,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             active_transcription_engine="librosa.pyin",
             basic_pitch_available=False,
             basic_pitch_reason="Basic Pitch is intentionally not installed; Phase 3D uses librosa.pyin with a librosa.yin fallback.",
+        )
+
+    @app.get("/api/ai/providers/status", response_model=AIProviderStatusResponse, tags=["ai"])
+    @app.get("/api/ai/status", response_model=AIProviderStatusResponse, include_in_schema=False)
+    async def ai_provider_status() -> AIProviderStatusResponse:
+        return AIProviderStatusResponse(providers=app.state.ai_service.provider_status())
+
+    @app.post("/api/ai/generate", response_model=AIGenerateResponse, tags=["ai"])
+    async def generate_ai(request: AIGenerateRequest) -> AIGenerateResponse:
+        try:
+            result = await app.state.ai_service.generate(AIRequest(prompt=request.prompt))
+        except ProviderError as error:
+            raise _ai_error(error) from error
+        return AIGenerateResponse(
+            text=result.text,
+            provider=result.provider,
+            used_fallback=result.used_fallback,
+            fallback_reason=result.fallback_reason,
         )
 
     @app.post("/api/analyze", response_model=JobResponse, status_code=201, tags=["analysis"])

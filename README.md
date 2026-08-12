@@ -27,6 +27,14 @@ npm run dev
 
 The frontend reads `NEXT_PUBLIC_AUDIO_API_URL` from `.env.example` and defaults to `http://localhost:8000` for local development. FastAPI allows the local frontend origins `http://localhost:3000` and `http://localhost:3001`; production deployments must set explicit `CORS_ORIGINS` values. Audio analysis is local and requires no API key.
 
+## Phase 6A AI provider foundation
+
+Phase 6A adds a backend-only, text-only AI provider foundation. Copy `backend/.env.example` to the backend environment and set `GEMINI_API_KEY` for the primary Gemini free tier. `GROQ_API_KEY` is optional and can be used as a free-tier fallback. Never put either key in the root `.env.example`, Next.js environment, browser code, browser requests, logs, tests, or Git.
+
+The backend exposes provider status at `GET /api/ai/providers/status` and a bounded text foundation endpoint at `POST /api/ai/generate`. The endpoint accepts only a `prompt` string; it does not accept or forward audio, microphone recordings, raw MIDI, files, or personal data. Missing keys and provider failures safely use a deterministic local mock response. The response contains only the provider name and a safe fallback category, never credentials or provider internals.
+
+Use only free-tier provider access. This foundation does not configure billing, paid models, or a paid service requirement. Model names, timeout, retry limit, provider priority, prompt/response limits, and mock fallback are configured through the `AI_*` variables in `backend/.env.example`. No tutor chat UI or Phase 6B behavior is included.
+
 ## Verification
 
 ```bash
@@ -55,4 +63,4 @@ npm run start
 - Python 3.13-compatible backend dependencies: librosa 0.11.0, numpy 2.2.6, and soundfile 0.13.1
 - Authorised WAV, MP3, M4A, and OGG upload with local analysis status and result readout
 
-AI tutoring, authentication, persistence, chords, source separation, and dense mixed-recording transcription are intentionally not implemented yet. Audio analysis is local and works without API keys, paid services, or network APIs.
+Tutor chat UI, authentication, persistence, chords, source separation, dense mixed-recording transcription, and Phase 6B behavior are intentionally not implemented. Audio analysis remains local; Phase 6A provider calls are backend-only, text-only, optional, and safe without API keys or paid services.
