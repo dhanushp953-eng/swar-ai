@@ -91,6 +91,7 @@ export function usePracticeResults({ storage: injectedStorage }: UsePracticeResu
 
   return {
     results: state.results,
+    hydrated: state.hydrated,
     hasStorage: state.hydrated && state.storage !== null,
     saveResult,
     deleteResult: deleteResultById,
