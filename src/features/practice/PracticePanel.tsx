@@ -23,7 +23,7 @@ import { sanitizeExportFilename, triggerFileDownload } from "@/features/lesson/l
 import type { HandMode, LessonStatus } from "@/types/lesson";
 import { PracticeResults } from "@/features/practice/PracticeResults";
 import { usePracticeResults } from "@/features/practice/usePracticeResults";
-import { serializeResultsExport, type PracticeInput } from "@/features/practice/results-store";
+import { serializeResultsExport, type PracticeInput, type StoredPracticeResult } from "@/features/practice/results-store";
 import { createTutorPracticeSnapshot, createTutorPracticeSnapshotFromStoredResult, type TutorPracticeSnapshot } from "@/lib/tutor-api";
 
 export type { PracticeInput } from "@/features/practice/results-store";
@@ -76,6 +76,8 @@ type PracticePanelProps = {
   onSelectLesson?: (lessonId: string) => void;
   /** Exposes only the current sanitized score summary to the lesson-scoped tutor. */
   onPracticeSnapshot?: (snapshot: TutorPracticeSnapshot | null) => void;
+  /** Shares the already-sanitized local history with lesson-scoped coaching. */
+  onPracticeResultsChange?: (results: StoredPracticeResult[]) => void;
 };
 
 function ScoreLine({ label, score }: { label: string; score: number }) {
@@ -138,7 +140,7 @@ function micStatusLabel(mic: MicConnectionState): string {
   }
 }
 
-export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi", lessonId, lessonTitle, onSelectLesson, onPracticeSnapshot }: PracticePanelProps) {
+export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi", lessonId, lessonTitle, onSelectLesson, onPracticeSnapshot, onPracticeResultsChange }: PracticePanelProps) {
   const [enabled, setEnabled] = useState(defaultEnabled);
   const [preset, setPreset] = useState<PracticePresetId>("standard");
   const [latencyMs, setLatencyMs] = useState(0);
@@ -150,6 +152,10 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
   const practiceResults = usePracticeResults();
   const { saveResult } = practiceResults;
 
+  useEffect(() => {
+    if (practiceResults.hydrated) onPracticeResultsChange?.(practiceResults.results);
+  }, [onPracticeResultsChange, practiceResults.hydrated, practiceResults.results]);
+
   const mic = micController ?? getMicInput();
   const micState = useMicInput(mic);
 
@@ -160,6 +166,15 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
       if (input === "microphone") mic.stop();
     };
   }, [input, mic]);
+
+  // Switching practice input mode drops any held notes from the source we are
+  // leaving, so no voice/hold state can carry over (stuck-note prevention).
+  const previousInputRef = useRef<PracticeInput>(input);
+  useEffect(() => {
+    if (previousInputRef.current === input) return;
+    previousInputRef.current = input;
+    controller?.releaseAll();
+  }, [controller, input]);
 
   const noteSource: PracticeNoteSource | undefined = input === "microphone" ? mic : controller;
 

@@ -26,7 +26,7 @@ export function MidiKeyboardPanel({ controller }: { controller?: WebMidiControll
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
 
-  const { playNote, stopNote } = audio;
+  const { playNote, stopNote, stopAllNotes } = audio;
   useEffect(() => {
     const midi = controller ?? getMidiController();
     if (!soundEnabled) return;
@@ -39,7 +39,8 @@ export function MidiKeyboardPanel({ controller }: { controller?: WebMidiControll
   useEffect(() => () => {
     const midi = controller ?? getMidiController();
     midi.releaseAll();
-  }, [controller]);
+    stopAllNotes();
+  }, [controller, stopAllNotes]);
 
   const handleConnect = () => {
     void audio.ensureReady();

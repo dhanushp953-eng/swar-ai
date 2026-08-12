@@ -549,6 +549,7 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
     if (isAudioMaster) {
       const wasPlaying = phaseRef.current === "playing";
       clearScheduled();
+      synthRef.current?.releaseAll();
       const audio = readAudioElement(audioRef);
       if (audio) audio.currentTime = getAudioSeekTime(nextTime, syncOffsetRef.current, exercise.duration);
       setEngineTime(nextTime);
@@ -563,6 +564,7 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       currentTimeRef.current = nextTime;
       lessonStartRef.current = nextTime;
       transportStartRef.current = getTransport().seconds;
+      synthRef.current?.releaseAll();
       schedulePlayback(false);
     } else if (nextTime < exercise.duration) {
       setEngineStatus(nextTime === 0 ? "idle" : "paused");
@@ -798,6 +800,20 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
     audioRef.current.playbackRate = speed;
     audioRef.current.volume = outputMode === "piano" ? 0 : originalVolume;
   }, [audioRef, isAudioMaster, originalVolume, outputMode, speed]);
+
+  // Release any sounding voices immediately when the window blurs or the page
+  // becomes hidden, so playback never leaves a continuous tone behind.
+  useEffect(() => {
+    const release = () => synthRef.current?.releaseAll();
+    const onBlur = () => release();
+    const onVisibility = () => { if (document.hidden) release(); };
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     getTransport().stop();
