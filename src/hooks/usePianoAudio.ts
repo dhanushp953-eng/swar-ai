@@ -23,6 +23,8 @@ export function usePianoAudio() {
 
   const playNote = useCallback(async (note: string) => { const synth = await ensureSynth(); synth.triggerAttack(note); }, [ensureSynth]);
   const stopNote = useCallback((note: string) => { if (!sustain) synthRef.current?.triggerRelease(note); }, [sustain]);
+  const stopAllNotes = useCallback(() => { synthRef.current?.releaseAll(); }, []);
+  const ensureReady = useCallback(async () => { await ensureSynth(); }, [ensureSynth]);
   const setVolume = useCallback((next: number) => { setVolumeState(next); if (synthRef.current) synthRef.current.volume.value = next; }, []);
-  return { playNote, stopNote, volume, setVolume, instrument, setInstrument, sustain, setSustain };
+  return { playNote, stopNote, stopAllNotes, ensureReady, volume, setVolume, instrument, setInstrument, sustain, setSustain };
 }

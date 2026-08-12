@@ -13,6 +13,7 @@ import { PianoRoll } from "@/features/lesson/PianoRoll";
 import { getLessonSelectOptions, resolveLessonSelection } from "@/features/lesson/lesson-selection";
 import { CorrectionEditorPanel } from "@/features/correction/CorrectionEditorPanel";
 import { type CorrectionSource, useCorrectionEditor } from "@/features/correction/useCorrectionEditor";
+import { getMidiController } from "@/lib/midi/web-midi";
 import { ExportLessonControls } from "@/features/lesson/ExportLessonControls";
 import { useLessonExport } from "@/features/lesson/useLessonExport";
 
@@ -64,6 +65,10 @@ function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson,
   const audioRef = detectedAudioRef ?? localAudioRef;
   const isDetected = sourceMode === "detected";
   const engine = useLessonEngine(exercise, { audioFile: isDetected ? detectedLesson?.audioFile : null, audioRef, objectUrl: isDetected ? detectedObjectUrl ?? null : null });
+  const midiReleaseAll = useMemo(() => () => getMidiController().releaseAll(), []);
+  useEffect(() => {
+    midiReleaseAll();
+  }, [exercise.id, midiReleaseAll]);
   const activeMidi = useMemo(() => engine.status === "playing" || engine.status === "paused" ? getActiveMidi(exercise.events, engine.currentTime, engine.handMode) : new Set<number>(), [engine.currentTime, engine.handMode, engine.status, exercise.events]);
   const display = useMemo(() => getCurrentMusicalDisplay(exercise.events, engine.currentTime, engine.handMode), [engine.currentTime, engine.handMode, exercise.events]);
   const isPlaying = engine.status === "playing" || engine.status === "count-in";
