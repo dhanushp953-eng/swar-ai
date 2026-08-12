@@ -10,7 +10,9 @@ from app.core.config import Settings
 from app.core.errors import AnalysisError
 from app.schemas.ai import AIGenerateRequest, AIGenerateResponse, AIProviderStatusResponse
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
+from app.schemas.tutor import TutorAdviceRequest, TutorAdviceResponse
 from app.services.ai import AIRequest, AIService, GeminiProvider, GroqProvider, MockProvider, ProviderError
+from app.services.ai.tutor import GroundedTutorService
 from app.services.jobs import JobStore
 from app.services.melody_analysis import MelodyTranscriptionService
 from app.services.rhythm_analysis import RhythmAnalysisService
@@ -50,6 +52,7 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
             MockProvider(),
         ],
     )
+    app.state.tutor_service = GroundedTutorService(active_settings, app.state.ai_service)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_cors_origins,
@@ -93,6 +96,19 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
             raise _ai_error(error) from error
         return AIGenerateResponse(
             text=result.text,
+            provider=result.provider,
+            used_fallback=result.used_fallback,
+            fallback_reason=result.fallback_reason,
+        )
+
+    @app.post("/api/tutor/advice", response_model=TutorAdviceResponse, tags=["tutor"])
+    async def tutor_advice(request: TutorAdviceRequest) -> TutorAdviceResponse:
+        try:
+            result, advice = await app.state.tutor_service.advise(request)
+        except ProviderError as error:
+            raise _ai_error(error) from error
+        return TutorAdviceResponse(
+            advice=advice,
             provider=result.provider,
             used_fallback=result.used_fallback,
             fallback_reason=result.fallback_reason,

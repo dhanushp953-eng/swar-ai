@@ -162,7 +162,8 @@ class MockProvider:
         return "available"
 
     async def generate(self, request: AIRequest, settings: Settings) -> str:
-        del request
+        if request.prompt.startswith("SWARAI_TUTOR_CONTEXT_V1\n"):
+            return _mock_tutor_response(request.prompt, settings)
         return _validated_text(
             "The AI provider foundation is running in deterministic local fallback mode.",
             settings,
@@ -173,3 +174,105 @@ def _validated_text(text: str, settings: Settings) -> str:
     if not text or len(text) > settings.ai_max_response_chars or len(text.encode("utf-8")) > settings.ai_max_response_bytes:
         raise ProviderError("response_too_large" if text else "invalid_response")
     return text
+
+
+def _mock_tutor_response(prompt: str, settings: Settings) -> str:
+    try:
+        context = json.loads(prompt.split("\nCONTEXT_JSON:\n", 1)[1])
+    except (IndexError, TypeError, json.JSONDecodeError) as error:
+        raise ProviderError("invalid_response") from error
+    if not isinstance(context, dict):
+        raise ProviderError("invalid_response")
+
+    scores = context.get("scores") if isinstance(context.get("scores"), dict) else {}
+    mistakes = context.get("mistake_counts") if isinstance(context.get("mistake_counts"), dict) else {}
+    difficult_notes = context.get("difficult_notes") if isinstance(context.get("difficult_notes"), list) else []
+    lesson_name = context.get("lesson_name", "this lesson")
+    mode = context.get("practice_mode", "full")
+
+    overall = _score(scores, "overall")
+    overall_display = _display_score(overall)
+    summary = (
+        f"Keep building your work on {lesson_name}. Your recorded overall score is {overall_display}/100."
+        if overall is not None
+        else f"Keep building your work on {lesson_name}. An overall score was not supplied, so use the available details as your guide."
+    )
+
+    strengths: list[str] = []
+    for key, label in (("pitch", "Pitch"), ("timing", "Timing"), ("rhythm", "Rhythm"), ("duration", "Note length")):
+        value = _score(scores, key)
+        if value is not None and value >= 80:
+            strengths.append(f"{label} is a strong area at {value}/100.")
+    if not strengths:
+        strengths.append("You have a structured practice result to use as a clear starting point.")
+
+    priorities: list[str] = []
+    for key, label in (("pitch", "pitch"), ("timing", "timing"), ("rhythm", "rhythm"), ("duration", "note length")):
+        value = _score(scores, key)
+        if value is not None and value < 70:
+            priorities.append(f"Work on {label} with slow, focused repetitions ({value}/100).")
+    if _count(mistakes, "wrong_pitch") > 0:
+        priorities.append(f"Check note choices: {_count(mistakes, 'wrong_pitch')} wrong-pitch mistake(s) were recorded.")
+    if _count(mistakes, "early") + _count(mistakes, "late") > 0:
+        priorities.append("Use a steady pulse to make note entrances more even.")
+    if not priorities:
+        priorities.append("Keep the same careful focus and make the next repetition consistent.")
+
+    pitch_feedback = _feedback(scores, "pitch", "Pitch")
+    timing_feedback = _feedback(scores, "timing", "Timing")
+    rhythm_feedback = _feedback(scores, "rhythm", "Rhythm")
+    exercises = [
+        {
+            "title": "Slow note groups",
+            "instructions": f"Practice {', '.join(str(note) for note in difficult_notes[:4]) or 'the expected notes'} in groups of three at a comfortable slow speed. Pause between groups.",
+        },
+        {
+            "title": "Steady pulse",
+            "instructions": f"Use a gentle, even count and repeat the {mode} exercise three times without speeding up.",
+        },
+    ]
+    if _count(mistakes, "wrong_pitch") > 0:
+        exercises.append({
+            "title": "Look, then play",
+            "instructions": "Name each upcoming note quietly before playing it, then check that the next note is ready.",
+        })
+    if _count(mistakes, "early") + _count(mistakes, "late") > 0 and len(exercises) < 4:
+        exercises.append({
+            "title": "Tap before playing",
+            "instructions": "Tap the pulse for one round, then play the same notes while keeping the tap steady.",
+        })
+
+    return _validated_text(json.dumps({
+        "summary": summary,
+        "strengths": strengths[:3],
+        "improvement_priorities": priorities[:3],
+        "pitch_feedback": pitch_feedback,
+        "timing_feedback": timing_feedback,
+        "rhythm_feedback": rhythm_feedback,
+        "exercises": exercises[:4],
+    }, ensure_ascii=True, separators=(",", ":")), settings)
+
+
+def _score(scores: dict[str, Any], key: str) -> int | float | None:
+    value = scores.get(key)
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _display_score(value: int | float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def _count(mistakes: dict[str, Any], key: str) -> int:
+    value = mistakes.get(key, 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _feedback(scores: dict[str, Any], key: str, label: str) -> str:
+    value = _score(scores, key)
+    if value is None:
+        return f"{label} feedback is unavailable because no {key} score was supplied."
+    if value >= 80:
+        return f"{label} score: {value}/100. This is a strong area; keep the same careful approach."
+    return f"{label} score: {value}/100. Slow the exercise down and repeat short sections before joining them together."

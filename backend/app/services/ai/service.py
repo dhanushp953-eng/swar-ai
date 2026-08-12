@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Callable, Literal, Protocol, TypeVar, cast
 
 from app.core.config import Settings
 
@@ -15,6 +15,7 @@ ProviderErrorKind = Literal[
     "provider_failure",
     "response_too_large",
 ]
+ValidatedOutput = TypeVar("ValidatedOutput")
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,14 @@ class AIService:
         return {name: self.providers[name].availability for name in ("gemini", "groq", "mock") if name in self.providers}
 
     async def generate(self, request: AIRequest) -> AIResult:
+        result, _ = await self._generate(request)
+        return result
+
+    async def generate_validated(self, request: AIRequest, validator: Callable[[str], ValidatedOutput]) -> tuple[AIResult, ValidatedOutput]:
+        result, parsed = await self._generate(request, validator)
+        return result, cast(ValidatedOutput, parsed)
+
+    async def _generate(self, request: AIRequest, validator: Callable[[str], ValidatedOutput] | None = None) -> tuple[AIResult, ValidatedOutput | None]:
         self._validate_request(request)
         ordered_names = self._ordered_provider_names()
         failure_reasons: list[ProviderErrorKind] = []
@@ -72,17 +81,24 @@ class AIService:
                 try:
                     text = await provider.generate(request, self.settings)
                     text = self._safe_output(text)
+                    parsed = validator(text) if validator is not None else None
                     used_fallback = provider.name == "mock" or provider.name != preferred_external_provider or bool(failure_reasons)
-                    return AIResult(
-                        text=text,
-                        provider=provider.name,
-                        used_fallback=used_fallback,
-                        fallback_reason=(self._fallback_reason(failure_reasons) or "not_configured") if used_fallback else None,
+                    return (
+                        AIResult(
+                            text=text,
+                            provider=provider.name,
+                            used_fallback=used_fallback,
+                            fallback_reason=(self._fallback_reason(failure_reasons) or "not_configured") if used_fallback else None,
+                        ),
+                        parsed,
                     )
                 except ProviderError as error:
                     failure_reasons.append(error.kind)
                     if not error.retryable or attempt + 1 >= attempts:
                         break
+                except ValueError:
+                    failure_reasons.append("invalid_response")
+                    break
                 except Exception:
                     # Provider exceptions are intentionally converted to a public-safe category.
                     failure_reasons.append("provider_failure")
@@ -94,12 +110,18 @@ class AIService:
                 try:
                     text = await mock.generate(request, self.settings)
                     text = self._safe_output(text)
-                    return AIResult(
-                        text=text,
-                        provider="mock",
-                        used_fallback=True,
-                        fallback_reason=self._fallback_reason(failure_reasons) if attempted_external_provider or failure_reasons else "not_configured",
+                    parsed = validator(text) if validator is not None else None
+                    return (
+                        AIResult(
+                            text=text,
+                            provider="mock",
+                            used_fallback=True,
+                            fallback_reason=self._fallback_reason(failure_reasons) if attempted_external_provider or failure_reasons else "not_configured",
+                        ),
+                        parsed,
                     )
+                except ValueError:
+                    failure_reasons.append("invalid_response")
                 except Exception:
                     failure_reasons.append("provider_failure")
 
