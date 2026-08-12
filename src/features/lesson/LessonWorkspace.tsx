@@ -17,6 +17,8 @@ import { getMidiController } from "@/lib/midi/web-midi";
 import { ExportLessonControls } from "@/features/lesson/ExportLessonControls";
 import { useLessonExport } from "@/features/lesson/useLessonExport";
 import { PracticePanel } from "@/features/practice/PracticePanel";
+import { TutorPanel } from "@/features/tutor/TutorPanel";
+import type { TutorPracticeSnapshot } from "@/lib/tutor-api";
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60);
@@ -62,6 +64,7 @@ export function LessonWorkspace({ detectedLesson, detectedObjectUrl, detectedAud
 function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson, detectedObjectUrl, detectedAudioRef, importedLesson, canEdit, correctionDirty, correctionCount, editing, onEdit, exportState, canExportOriginal, onExportOriginal, onExportCurrent }: { exercise: LessonExercise; onExerciseChange: (id: string) => void; sourceMode: LessonSourceMode; detectedLesson: DetectedLesson | null | undefined; detectedObjectUrl?: string | null; detectedAudioRef?: RefObject<HTMLAudioElement | null>; importedLesson?: LessonExercise | null; canEdit: boolean; correctionDirty: boolean; correctionCount: number; editing: boolean; onEdit: () => void; exportState: ReturnType<typeof useLessonExport>["state"]; canExportOriginal: boolean; onExportOriginal: () => void; onExportCurrent: () => void }) {
   const [showNoteNames, setShowNoteNames] = useState(true);
   const [showFingerNumbers, setShowFingerNumbers] = useState(true);
+  const [practiceSnapshot, setPracticeSnapshot] = useState<TutorPracticeSnapshot | null>(null);
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioRef = detectedAudioRef ?? localAudioRef;
   const isDetected = sourceMode === "detected";
@@ -81,6 +84,16 @@ function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson,
   const practiceEvents = useMemo(() => filterEventsByHand(exercise.events, engine.handMode).map((event) => ({ id: event.id, midi: event.midi, name: event.name, start: event.start, duration: event.duration, hand: event.hand, velocity: event.velocity })), [engine.handMode, exercise.events]);
   const getLessonTime = useCallback(() => engine.currentTime, [engine.currentTime]);
   const practiceLessonId = sourceMode === "detected" ? "detected" : sourceMode === "imported" ? "imported" : exercise.id;
+  const handlePracticeSnapshot = useCallback((next: TutorPracticeSnapshot | null) => {
+    setPracticeSnapshot((current) => {
+      if (current === null && next === null) return current;
+      if (current && next && JSON.stringify(current) === JSON.stringify(next)) return current;
+      return next;
+    });
+  }, []);
+  const tutorPanelKey = practiceSnapshot
+    ? `${sourceMode}-${exercise.id}-${practiceSnapshot.scores.overall}-${practiceSnapshot.scores.pitch}-${practiceSnapshot.scores.timing}-${practiceSnapshot.mistake_counts.wrong_pitch}-${practiceSnapshot.mistake_counts.missed}`
+    : `${sourceMode}-${exercise.id}-empty`;
   const handlePracticeAgain = (lessonIdValue: string) => {
     if (lessonIdValue === practiceLessonId) {
       engine.restart();
@@ -103,6 +116,7 @@ function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson,
       <div className="lesson-option-group lesson-toggles"><label><input type="checkbox" checked={engine.metronome} onChange={(event) => engine.setMetronome(event.target.checked)} /> Metronome</label><label><input type="checkbox" checked={showNoteNames} onChange={(event) => setShowNoteNames(event.target.checked)} /> Note names</label><label><input type="checkbox" checked={showFingerNumbers} onChange={(event) => setShowFingerNumbers(event.target.checked)} /> Finger numbers</label></div>
     </div>
     <div className="loop-panel"><div className="loop-heading"><span><Repeat2 size={15} /> Loop range</span><label><input type="checkbox" checked={engine.loopEnabled} onChange={(event) => engine.setLoopEnabled(event.target.checked)} /> Repeat range</label></div><div className="loop-sliders"><label>A <input aria-label="Loop start" type="range" min="0" max={exercise.duration - 0.1} step="0.1" value={engine.loopStart} onChange={(event) => engine.setLoopRange(Number(event.target.value), engine.loopEnd)} /><output>{formatTime(engine.loopStart)}</output></label><label>B <input aria-label="Loop end" type="range" min="0.1" max={exercise.duration} step="0.1" value={engine.loopEnd} onChange={(event) => engine.setLoopRange(engine.loopStart, Number(event.target.value))} /><output>{formatTime(engine.loopEnd)}</output></label></div><div className="loop-actions"><button type="button" onClick={() => engine.setLoopRange(engine.currentTime, engine.loopEnd)}><TimerReset size={13} /> Set A here</button><button type="button" onClick={() => engine.setLoopRange(engine.loopStart, Math.max(engine.currentTime, engine.loopStart + 0.1))}><TimerReset size={13} /> Set B here</button></div></div>
-    <PracticePanel events={practiceEvents} allEvents={practiceAllEvents} handMode={engine.handMode} engine={engine} controller={getMidiController()} getLessonTime={getLessonTime} status={engine.status} duration={exercise.duration} onRestart={engine.restart} lessonId={practiceLessonId} lessonTitle={exercise.title} onSelectLesson={handlePracticeAgain} />
+     <PracticePanel events={practiceEvents} allEvents={practiceAllEvents} handMode={engine.handMode} engine={engine} controller={getMidiController()} getLessonTime={getLessonTime} status={engine.status} duration={exercise.duration} onRestart={engine.restart} lessonId={practiceLessonId} lessonTitle={exercise.title} onSelectLesson={handlePracticeAgain} onPracticeSnapshot={handlePracticeSnapshot} />
+     <TutorPanel key={tutorPanelKey} lesson={exercise} practiceSnapshot={practiceSnapshot} />
   </div>;
 }

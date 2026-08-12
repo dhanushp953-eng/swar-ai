@@ -108,4 +108,4 @@ npm run start
 - Python 3.13-compatible backend dependencies: librosa 0.11.0, numpy 2.2.6, and soundfile 0.13.1
 - Authorised WAV, MP3, M4A, and OGG upload with local analysis status and result readout
 
-Tutor chat UI, authentication, persistence, chords, source separation, dense mixed-recording transcription, and Phase 6C behavior are intentionally not implemented. Audio analysis remains local; Phase 6A and 6B provider calls are backend-only, structured/text-only, optional, and safe without API keys or paid services.
+Authentication, persistence, chords, source separation, dense mixed-recording transcription, accounts, cloud history, streaming, and Phase 6D behavior are intentionally not implemented. Phase 6C adds only a temporary Studio tutor panel connected to the backend advice endpoint; it sends sanitized lesson/score context only and keeps conversation in React memory. Audio analysis remains local; Phase 6A and 6B provider calls are backend-only, structured/text-only, optional, and safe without API keys or paid services.

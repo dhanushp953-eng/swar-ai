@@ -31,12 +31,13 @@ const PROBLEM_LABELS: Record<ProblemKind, string> = {
 
 function formatResultDate(createdAt: number): string {
   try {
-    return new Date(createdAt).toLocaleString(undefined, {
+    return new Date(createdAt).toLocaleString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      timeZone: "UTC",
     });
   } catch {
     return new Date(createdAt).toString();

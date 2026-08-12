@@ -24,6 +24,7 @@ import type { HandMode, LessonStatus } from "@/types/lesson";
 import { PracticeResults } from "@/features/practice/PracticeResults";
 import { usePracticeResults } from "@/features/practice/usePracticeResults";
 import { serializeResultsExport, type PracticeInput } from "@/features/practice/results-store";
+import { createTutorPracticeSnapshot, createTutorPracticeSnapshotFromStoredResult, type TutorPracticeSnapshot } from "@/lib/tutor-api";
 
 export type { PracticeInput } from "@/features/practice/results-store";
 
@@ -73,6 +74,8 @@ type PracticePanelProps = {
   lessonTitle?: string;
   /** Called with a stored result's lessonId when the user picks "Practise again". */
   onSelectLesson?: (lessonId: string) => void;
+  /** Exposes only the current sanitized score summary to the lesson-scoped tutor. */
+  onPracticeSnapshot?: (snapshot: TutorPracticeSnapshot | null) => void;
 };
 
 function ScoreLine({ label, score }: { label: string; score: number }) {
@@ -135,7 +138,7 @@ function micStatusLabel(mic: MicConnectionState): string {
   }
 }
 
-export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi", lessonId, lessonTitle, onSelectLesson }: PracticePanelProps) {
+export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi", lessonId, lessonTitle, onSelectLesson, onPracticeSnapshot }: PracticePanelProps) {
   const [enabled, setEnabled] = useState(defaultEnabled);
   const [preset, setPreset] = useState<PracticePresetId>("standard");
   const [latencyMs, setLatencyMs] = useState(0);
@@ -183,6 +186,12 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
     configOverrides,
     latencyMs,
   });
+
+  useEffect(() => {
+    const currentSnapshot = status === "complete" && result ? createTutorPracticeSnapshot(result, focus) : null;
+    const latestStored = practiceResults.results.find((stored) => stored.lessonId === (lessonId ?? "unknown")) ?? null;
+    onPracticeSnapshot?.(currentSnapshot ?? (latestStored ? createTutorPracticeSnapshotFromStoredResult(latestStored) : null));
+  }, [focus, lessonId, onPracticeSnapshot, practiceResults.results, result, status]);
 
   // Keep the engine's wait targets in sync with the practised notes.
   const loopEnabled = engine?.loopEnabled ?? false;
