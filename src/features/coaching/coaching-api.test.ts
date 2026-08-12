@@ -11,6 +11,25 @@ const latest: StoredPracticeResult = {
 
 afterEach(() => vi.unstubAllGlobals());
 
+const MOCK_ADVICE = {
+  advice: {
+    summary: "Keep the pulse calm and focused.",
+    strengths: ["Your latest score gives a clear starting point."],
+    improvement_priorities: ["Repeat the short section evenly."],
+    pitch_feedback: "Pitch score: 86/100.",
+    timing_feedback: "Timing score: 64/100. Slow the section down.",
+    rhythm_feedback: "Rhythm feedback is unavailable.",
+    exercises: [
+      { title: "One", instructions: "Play the focus section slowly." },
+      { title: "Two", instructions: "Repeat the phrase evenly." },
+      { title: "Three", instructions: "Join the phrase." },
+    ],
+  },
+  provider: "mock",
+  used_fallback: true,
+  fallback_reason: "not_configured",
+};
+
 describe("coaching wording assist", () => {
   it("sends only the latest sanitized snapshot and keeps deterministic facts local", async () => {
     const plan = buildCoachingPlan(demoExercises[0], [latest], 20)!;
@@ -21,7 +40,7 @@ describe("coaching wording assist", () => {
       expect(body).not.toHaveProperty("raw_midi");
       expect(body).not.toHaveProperty("audio");
       expect(String(body.user_question)).toContain(`${plan.recommendedTempo} BPM`);
-      return new Response(JSON.stringify({ advice: { summary: "Keep the pulse calm and focused.", strengths: ["Your latest score gives a clear starting point."], improvement_priorities: ["Repeat the short section evenly."], pitch_feedback: "Pitch score: 86/100.", timing_feedback: "Timing score: 64/100. Slow the section down.", rhythm_feedback: "Rhythm feedback is unavailable.", exercises: [{ title: "One", instructions: "Play the focus section slowly." }, { title: "Two", instructions: "Repeat the phrase evenly." }, { title: "Three", instructions: "Join the phrase." }] }, provider: "mock", used_fallback: true, fallback_reason: "not_configured" }), { status: 200 } );
+      return new Response(JSON.stringify(MOCK_ADVICE), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
     const worded = await requestCoachingWording(demoExercises[0], latest, plan);
@@ -41,10 +60,7 @@ describe("coaching wording assist", () => {
     const stored = preserveGoalCompletion(buildCoachingPlan(demoExercises[0], [build()], 20)!, buildCoachingPlan(demoExercises[0], [build()], 20)!);
     const storedWithCompletedGoal = { ...stored, goals: stored.goals.map((goal, index) => ({ ...goal, completed: index === 0 })) };
 
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      advice: { summary: "Refine the pulse.", strengths: ["Good base."], improvement_priorities: ["Lock the timing."], pitch_feedback: "Pitch score: 86/100.", timing_feedback: "Timing score: 64/100. Slow it.", rhythm_feedback: "Rhythm feedback is unavailable.", exercises: [{ title: "One", instructions: "Play slowly." }, { title: "Two", instructions: "Repeat evenly." }] },
-      provider: "mock", used_fallback: true, fallback_reason: "not_configured",
-    }), { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(MOCK_ADVICE), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const worded = await requestCoachingWording(demoExercises[0], build(), storedWithCompletedGoal);
@@ -56,5 +72,47 @@ describe("coaching wording assist", () => {
     expect(preserved.goals[0].completed).toBe(true);
     expect(preserved.goals[1].completed).toBe(false);
     expect(preserved.recommendedTempo).toBe(storedWithCompletedGoal.recommendedTempo);
+  });
+});
+
+describe("coaching wording safety and resilience", () => {
+  const plan = buildCoachingPlan(demoExercises[0], [latest], 20)!;
+
+  it("marks the plan as local fallback when the tutor is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(MOCK_ADVICE), { status: 200 })));
+    const worded = await requestCoachingWording(demoExercises[0], latest, plan);
+    expect(worded.wordingFallback).toBe(true);
+    expect(worded.wordingProvider).toBe("mock");
+    expect(worded.recommendedTempo).toBe(plan.recommendedTempo);
+  });
+
+  it("surfaces a rate-limit response as a safe error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "ai_rate_limited", message: "Too many requests." } }), { status: 429 })));
+    await expect(requestCoachingWording(demoExercises[0], latest, plan)).rejects.toMatchObject({ kind: "server", code: "ai_rate_limited" });
+  });
+
+  it("honors an abort signal and reports cancellation", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    }));
+    await expect(requestCoachingWording(demoExercises[0], latest, plan, controller.signal)).rejects.toMatchObject({ kind: "cancelled", code: "cancelled" });
+  });
+
+  it("never sends provider keys, media, or raw MIDI in the wording request", async () => {
+    let captured: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured = String(init?.body);
+      return new Response(JSON.stringify(MOCK_ADVICE), { status: 200 });
+    }));
+    await requestCoachingWording(demoExercises[0], latest, plan);
+    const lower = captured!.toLowerCase();
+    expect(lower).not.toContain("api_key");
+    expect(lower).not.toContain("secret");
+    expect(lower).not.toContain("midi");
+    expect(lower).not.toContain("audio");
+    expect(lower).not.toContain("lyrics");
+    expect(lower).not.toContain("file://");
   });
 });

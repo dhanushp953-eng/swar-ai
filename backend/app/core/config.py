@@ -77,6 +77,8 @@ class Settings:
     ai_max_response_bytes: int = 64 * 1024
     ai_max_output_tokens: int = 512
     ai_mock_fallback_enabled: bool = True
+    ai_rate_limit_per_minute: int = 12
+    ai_duplicate_window_seconds: float = 4.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -115,6 +117,8 @@ class Settings:
             ai_max_response_bytes=_env_int(os.getenv("AI_MAX_RESPONSE_BYTES"), cls.ai_max_response_bytes, 1, 1_048_576),
             ai_max_output_tokens=_env_int(os.getenv("AI_MAX_OUTPUT_TOKENS"), cls.ai_max_output_tokens, 1, 4096),
             ai_mock_fallback_enabled=_env_bool(os.getenv("AI_MOCK_FALLBACK_ENABLED"), cls.ai_mock_fallback_enabled),
+            ai_rate_limit_per_minute=_env_int(os.getenv("AI_RATE_LIMIT_PER_MINUTE"), cls.ai_rate_limit_per_minute, 1, 1000),
+            ai_duplicate_window_seconds=_env_float(os.getenv("AI_DUPLICATE_WINDOW_SECONDS"), cls.ai_duplicate_window_seconds, 0.0, 3600.0),
         )
 
     @property

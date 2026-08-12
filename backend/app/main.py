@@ -8,6 +8,10 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
 from app.core.errors import AnalysisError
+from app.core.idempotency import InFlightRegistry
+from app.core.logging import configure_logging
+from app.core.rate_limit import RateLimiter
+from app.middleware.safety import SafetyMiddleware
 from app.schemas.ai import AIGenerateRequest, AIGenerateResponse, AIProviderStatusResponse
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
 from app.schemas.tutor import TutorAdviceRequest, TutorAdviceResponse
@@ -53,6 +57,15 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
         ],
     )
     app.state.tutor_service = GroundedTutorService(active_settings, app.state.ai_service)
+    app.state.rate_limiter = RateLimiter(active_settings.ai_rate_limit_per_minute)
+    app.state.idempotency = InFlightRegistry(active_settings.ai_duplicate_window_seconds)
+    configure_logging([active_settings.gemini_api_key, active_settings.groq_api_key])
+    app.add_middleware(
+        SafetyMiddleware,
+        rate_limiter=app.state.rate_limiter,
+        idempotency=app.state.idempotency,
+        request_timeout_seconds=active_settings.ai_request_timeout_seconds,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=active_settings.allowed_cors_origins,

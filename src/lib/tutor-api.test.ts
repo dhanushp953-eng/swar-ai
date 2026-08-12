@@ -144,3 +144,47 @@ describe("tutor API transport", () => {
     expect(isTutorAdviceResponse({ ...adviceResponse, provider: "unknown" })).toBe(false);
   });
 });
+
+describe("tutor API safety and resilience", () => {
+  const built = buildTutorAdviceRequest(demoExercises[0], createTutorPracticeSnapshot(result, "full"), "How can I make entrances steadier?");
+
+  it("maps a network failure to a safe offline error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("network"); }));
+    await expect(requestTutorAdvice(built.request!)).rejects.toMatchObject({ kind: "offline", code: "offline" });
+  });
+
+  it("maps a 429 rate-limit response to a safe structured error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { code: "ai_rate_limited", message: "Too many requests." } }), { status: 429 })));
+    await expect(requestTutorAdvice(built.request!)).rejects.toMatchObject({ kind: "server", code: "ai_rate_limited", statusCode: 429 });
+  });
+
+  it("treats an invalid JSON response as an invalid_response error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not-json", { status: 200 })));
+    await expect(requestTutorAdvice(built.request!)).rejects.toMatchObject({ kind: "invalid_response", code: "invalid_response" });
+  });
+
+  it("honors an abort signal and reports cancellation", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    }));
+    await expect(requestTutorAdvice(built.request!, controller.signal)).rejects.toMatchObject({ kind: "cancelled", code: "cancelled" });
+  });
+
+  it("never sends api keys, media, or raw MIDI in the request body", async () => {
+    let captured: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured = String(init?.body);
+      return new Response(JSON.stringify(adviceResponse), { status: 200 });
+    }));
+    await requestTutorAdvice(built.request!);
+    const lower = captured!.toLowerCase();
+    expect(captured).not.toContain("api_key");
+    expect(lower).not.toContain("secret");
+    expect(lower).not.toContain("midi");
+    expect(lower).not.toContain("audio");
+    expect(lower).not.toContain("lyrics");
+    expect(lower).not.toContain("file://");
+  });
+});
