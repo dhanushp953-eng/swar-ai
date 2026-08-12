@@ -80,6 +80,14 @@ function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson,
   const practiceAllEvents = useMemo(() => exercise.events.map((event) => ({ id: event.id, midi: event.midi, name: event.name, start: event.start, duration: event.duration, hand: event.hand, velocity: event.velocity })), [exercise.events]);
   const practiceEvents = useMemo(() => filterEventsByHand(exercise.events, engine.handMode).map((event) => ({ id: event.id, midi: event.midi, name: event.name, start: event.start, duration: event.duration, hand: event.hand, velocity: event.velocity })), [engine.handMode, exercise.events]);
   const getLessonTime = useCallback(() => engine.currentTime, [engine.currentTime]);
+  const practiceLessonId = sourceMode === "detected" ? "detected" : sourceMode === "imported" ? "imported" : exercise.id;
+  const handlePracticeAgain = (lessonIdValue: string) => {
+    if (lessonIdValue === practiceLessonId) {
+      engine.restart();
+      return;
+    }
+    onExerciseChange(lessonIdValue);
+  };
 
   return <div className="lesson-workspace lesson-engine">
     <div className="workspace-top"><div><span className="status-dot" />Lesson workspace <span className="muted">/ {statusLabel.toLowerCase()}</span></div><div className="workspace-actions"><button type="button" onClick={engine.restart} aria-label="Restart lesson"><RotateCcw size={16} /></button><button type="button" onClick={isPlaying ? engine.pause : engine.play} aria-label={isPlaying ? "Pause lesson" : "Play lesson"}>{isPlaying ? <Pause size={16} /> : <Play size={16} />}</button></div></div>
@@ -95,6 +103,6 @@ function LessonSession({ exercise, onExerciseChange, sourceMode, detectedLesson,
       <div className="lesson-option-group lesson-toggles"><label><input type="checkbox" checked={engine.metronome} onChange={(event) => engine.setMetronome(event.target.checked)} /> Metronome</label><label><input type="checkbox" checked={showNoteNames} onChange={(event) => setShowNoteNames(event.target.checked)} /> Note names</label><label><input type="checkbox" checked={showFingerNumbers} onChange={(event) => setShowFingerNumbers(event.target.checked)} /> Finger numbers</label></div>
     </div>
     <div className="loop-panel"><div className="loop-heading"><span><Repeat2 size={15} /> Loop range</span><label><input type="checkbox" checked={engine.loopEnabled} onChange={(event) => engine.setLoopEnabled(event.target.checked)} /> Repeat range</label></div><div className="loop-sliders"><label>A <input aria-label="Loop start" type="range" min="0" max={exercise.duration - 0.1} step="0.1" value={engine.loopStart} onChange={(event) => engine.setLoopRange(Number(event.target.value), engine.loopEnd)} /><output>{formatTime(engine.loopStart)}</output></label><label>B <input aria-label="Loop end" type="range" min="0.1" max={exercise.duration} step="0.1" value={engine.loopEnd} onChange={(event) => engine.setLoopRange(engine.loopStart, Number(event.target.value))} /><output>{formatTime(engine.loopEnd)}</output></label></div><div className="loop-actions"><button type="button" onClick={() => engine.setLoopRange(engine.currentTime, engine.loopEnd)}><TimerReset size={13} /> Set A here</button><button type="button" onClick={() => engine.setLoopRange(engine.loopStart, Math.max(engine.currentTime, engine.loopStart + 0.1))}><TimerReset size={13} /> Set B here</button></div></div>
-    <PracticePanel events={practiceEvents} allEvents={practiceAllEvents} handMode={engine.handMode} engine={engine} controller={getMidiController()} getLessonTime={getLessonTime} status={engine.status} duration={exercise.duration} onRestart={engine.restart} />
+    <PracticePanel events={practiceEvents} allEvents={practiceAllEvents} handMode={engine.handMode} engine={engine} controller={getMidiController()} getLessonTime={getLessonTime} status={engine.status} duration={exercise.duration} onRestart={engine.restart} lessonId={practiceLessonId} lessonTitle={exercise.title} onSelectLesson={handlePracticeAgain} />
   </div>;
 }

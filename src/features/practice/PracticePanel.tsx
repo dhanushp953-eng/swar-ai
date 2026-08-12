@@ -1,9 +1,9 @@
 "use client";
 
 import { Gauge, Mic, Piano, RotateCcw, SkipForward } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMicInput } from "@/hooks/useMicInput";
-import { usePracticeSession, type PracticeNoteSource } from "@/hooks/usePracticeSession";
+import { usePracticeSession, isFreshStart, type PracticeNoteSource } from "@/hooks/usePracticeSession";
 import {
   PRACTICE_PRESETS,
   PRACTICE_PRESET_META,
@@ -19,7 +19,13 @@ import { getRetryPoint, getWaitTargets } from "@/lib/practice/guided";
 import { getMicInput, type MicInputController } from "@/lib/mic/mic-input";
 import type { MicConnectionState } from "@/lib/mic/mic-types";
 import type { WebMidiController } from "@/lib/midi/web-midi";
+import { sanitizeExportFilename, triggerFileDownload } from "@/features/lesson/lesson-export";
 import type { HandMode, LessonStatus } from "@/types/lesson";
+import { PracticeResults } from "@/features/practice/PracticeResults";
+import { usePracticeResults } from "@/features/practice/usePracticeResults";
+import { serializeResultsExport, type PracticeInput } from "@/features/practice/results-store";
+
+export type { PracticeInput } from "@/features/practice/results-store";
 
 const CLASSIFICATION_META: Record<PerformedClassification, { label: string; tone: string }> = {
   correct: { label: "Correct", tone: "correct" },
@@ -28,8 +34,6 @@ const CLASSIFICATION_META: Record<PerformedClassification, { label: string; tone
   wrong: { label: "Wrong pitch", tone: "wrong" },
   extra: { label: "Extra", tone: "extra" },
 };
-
-export type PracticeInput = "midi" | "microphone";
 
 /** The subset of the lesson engine the practice panel drives. */
 export type LessonEngineHandle = {
@@ -64,6 +68,11 @@ type PracticePanelProps = {
   defaultEnabled?: boolean;
   /** Which input to select on first render. Defaults to MIDI. */
   defaultInput?: PracticeInput;
+  /** Lesson context recorded with each saved attempt. */
+  lessonId?: string;
+  lessonTitle?: string;
+  /** Called with a stored result's lessonId when the user picks "Practise again". */
+  onSelectLesson?: (lessonId: string) => void;
 };
 
 function ScoreLine({ label, score }: { label: string; score: number }) {
@@ -126,13 +135,17 @@ function micStatusLabel(mic: MicConnectionState): string {
   }
 }
 
-export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi" }: PracticePanelProps) {
+export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi", lessonId, lessonTitle, onSelectLesson }: PracticePanelProps) {
   const [enabled, setEnabled] = useState(defaultEnabled);
   const [preset, setPreset] = useState<PracticePresetId>("standard");
   const [latencyMs, setLatencyMs] = useState(0);
   const [input, setInput] = useState<PracticeInput>(defaultInput);
   const [focus, setFocus] = useState<PracticeFocus>("full");
   const [waitMode, setWaitMode] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
+
+  const practiceResults = usePracticeResults();
+  const { saveResult } = practiceResults;
 
   const mic = micController ?? getMicInput();
   const micState = useMicInput(mic);
@@ -200,6 +213,43 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
   const lastPlayedOnset = lastNote?.onset ?? null;
   const isComplete = status === "complete";
   const showSummary = isComplete && result !== null && result.counts.performed > 0;
+
+  // Record a completed attempt exactly once per run, as a sanitized summary.
+  const savedThisRun = useRef(false);
+  const previousStatus = useRef(status);
+  useEffect(() => {
+    if (isFreshStart(previousStatus.current, status)) savedThisRun.current = false;
+    previousStatus.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    if (!isComplete || !enabled || !result || savedThisRun.current) return;
+    savedThisRun.current = true;
+    saveResult({
+      lessonId: lessonId ?? "unknown",
+      lessonTitle: lessonTitle ?? "Unknown lesson",
+      input,
+      focus,
+      preset,
+      handMode,
+      result,
+    });
+  }, [enabled, focus, handMode, input, isComplete, lessonId, lessonTitle, preset, result, saveResult]);
+
+  const handleExportResults = () => {
+    if (practiceResults.results.length === 0) {
+      setExportStatus("There are no saved attempts to export.");
+      return;
+    }
+    try {
+      const content = serializeResultsExport(practiceResults.results);
+      const fileName = sanitizeExportFilename("Practice results");
+      triggerFileDownload(fileName, content, "application/json");
+      setExportStatus(`Exported ${practiceResults.results.length} attempt${practiceResults.results.length === 1 ? "" : "s"} as ${fileName}.`);
+    } catch {
+      setExportStatus("The practice results could not be exported.");
+    }
+  };
 
   const retryPoint = useMemo(
     () => getRetryPoint(getLessonTime(), loopEnabled, loopStart, lastPlayedOnset),
@@ -383,6 +433,16 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
 
       {showSummary && result && <Summary result={result} onRestart={onRestart} />}
       {isComplete && enabled && (!result || result.counts.performed === 0) && <p className="practice-hint">No notes were scored during this attempt. Enable scoring and play along next time.</p>}
+
+      <PracticeResults
+        results={practiceResults.results}
+        hasStorage={practiceResults.hasStorage}
+        exportStatus={exportStatus}
+        onDelete={practiceResults.deleteResult}
+        onClear={practiceResults.clearResults}
+        onExport={handleExportResults}
+        onPracticeAgain={onSelectLesson ? (lessonIdValue) => onSelectLesson(lessonIdValue) : null}
+      />
     </section>
   );
 }
