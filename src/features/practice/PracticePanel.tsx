@@ -1,18 +1,25 @@
 "use client";
 
-import { Gauge, RotateCcw } from "lucide-react";
-import { useState } from "react";
-import { usePracticeSession } from "@/hooks/usePracticeSession";
+import { Gauge, Mic, Piano, RotateCcw, SkipForward } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useMicInput } from "@/hooks/useMicInput";
+import { usePracticeSession, type PracticeNoteSource } from "@/hooks/usePracticeSession";
 import {
+  PRACTICE_PRESETS,
   PRACTICE_PRESET_META,
   PRACTICE_PRESET_ORDER,
   type PerformedClassification,
+  type PracticeConfig,
   type PracticePresetId,
   type ScoreNoteEvent,
   type ScoreResult,
 } from "@/lib/practice/scoring";
+import { getPracticeEvents, PRACTICE_FOCUS_META, PRACTICE_FOCUS_ORDER, type PracticeFocus } from "@/lib/practice/modes";
+import { getRetryPoint, getWaitTargets } from "@/lib/practice/guided";
+import { getMicInput, type MicInputController } from "@/lib/mic/mic-input";
+import type { MicConnectionState } from "@/lib/mic/mic-types";
 import type { WebMidiController } from "@/lib/midi/web-midi";
-import type { LessonStatus } from "@/types/lesson";
+import type { HandMode, LessonStatus } from "@/types/lesson";
 
 const CLASSIFICATION_META: Record<PerformedClassification, { label: string; tone: string }> = {
   correct: { label: "Correct", tone: "correct" },
@@ -22,15 +29,41 @@ const CLASSIFICATION_META: Record<PerformedClassification, { label: string; tone
   extra: { label: "Extra", tone: "extra" },
 };
 
+export type PracticeInput = "midi" | "microphone";
+
+/** The subset of the lesson engine the practice panel drives. */
+export type LessonEngineHandle = {
+  status: LessonStatus;
+  loopEnabled: boolean;
+  loopStart: number;
+  loopEnd: number;
+  loopIteration: number;
+  play: () => void;
+  seek: (time: number) => void;
+  resume: () => void;
+  setWaitMode: (enabled: boolean) => void;
+  setWaitTargets: (targets: number[]) => void;
+};
+
 type PracticePanelProps = {
+  /** Expected events, already filtered by hand mode (full + rhythm focus). */
   events: ScoreNoteEvent[];
+  /** Unfiltered events, used to derive the melody line for melody focus. */
+  allEvents?: ScoreNoteEvent[];
+  /** Active hand mode; drives melody classification. */
+  handMode?: HandMode;
+  /** The lesson engine, enabling wait mode, loop iteration, and retry. */
+  engine?: LessonEngineHandle;
   controller?: WebMidiController;
+  micController?: MicInputController;
   getLessonTime: () => number;
   status: LessonStatus;
   duration: number;
   onRestart: () => void;
   /** Start with scoring enabled (used by the mocked-MIDI verification page). */
   defaultEnabled?: boolean;
+  /** Which input to select on first render. Defaults to MIDI. */
+  defaultInput?: PracticeInput;
 };
 
 function ScoreLine({ label, score }: { label: string; score: number }) {
@@ -74,24 +107,114 @@ export function Summary({ result, onRestart }: { result: ScoreResult; onRestart:
   );
 }
 
-export function PracticePanel({ events, controller, getLessonTime, status, duration, onRestart, defaultEnabled = false }: PracticePanelProps) {
+function micStatusLabel(mic: MicConnectionState): string {
+  switch (mic.status) {
+    case "listening":
+      return mic.muted ? "Listening — no clear note right now." : "Listening for notes.";
+    case "requesting":
+      return "Requesting microphone permission…";
+    case "permission-denied":
+      return "Permission denied. Allow the microphone in your browser settings, then enable it again.";
+    case "unsupported":
+      return "Microphone input is not supported in this browser. Try Chrome, Edge, or Firefox.";
+    case "device-disconnected":
+      return "Microphone disconnected. Check the connection, then enable it again.";
+    case "error":
+      return mic.error ?? "Something went wrong with the microphone.";
+    default:
+      return "Click “Enable microphone” to begin. Audio is processed locally and never recorded or sent anywhere.";
+  }
+}
+
+export function PracticePanel({ events, allEvents, handMode = "both", engine, controller, micController, getLessonTime, status, duration, onRestart, defaultEnabled = false, defaultInput = "midi" }: PracticePanelProps) {
   const [enabled, setEnabled] = useState(defaultEnabled);
   const [preset, setPreset] = useState<PracticePresetId>("standard");
   const [latencyMs, setLatencyMs] = useState(0);
+  const [input, setInput] = useState<PracticeInput>(defaultInput);
+  const [focus, setFocus] = useState<PracticeFocus>("full");
+  const [waitMode, setWaitMode] = useState(false);
+
+  const mic = micController ?? getMicInput();
+  const micState = useMicInput(mic);
+
+  // Stop the microphone whenever it is not the selected input (privacy).
+  useEffect(() => {
+    if (input === "midi") mic.stop();
+    return () => {
+      if (input === "microphone") mic.stop();
+    };
+  }, [input, mic]);
+
+  const noteSource: PracticeNoteSource | undefined = input === "microphone" ? mic : controller;
+
+  // The note set scored for the active hand + focus combination.
+  const sessionEvents = useMemo(
+    () => getPracticeEvents(allEvents ?? events, handMode, focus),
+    [allEvents, events, focus, handMode],
+  );
+
+  // Rhythm-only practice ignores pitch entirely and weights timing + duration.
+  const configOverrides = useMemo<Partial<PracticeConfig> | undefined>(() => {
+    if (focus !== "rhythm") return undefined;
+    return { ignorePitch: true, weights: { ...PRACTICE_PRESETS[preset].weights, pitch: 0 } };
+  }, [focus, preset]);
+
   const { result } = usePracticeSession({
-    events,
-    controller,
+    events: sessionEvents,
+    controller: noteSource,
     getLessonTime,
     status,
     duration,
     preset,
     enabled,
+    configOverrides,
     latencyMs,
   });
 
+  // Keep the engine's wait targets in sync with the practised notes.
+  const loopEnabled = engine?.loopEnabled ?? false;
+  const loopStart = engine?.loopStart ?? 0;
+  const loopEnd = engine?.loopEnd ?? duration;
+  useEffect(() => {
+    if (!engine || !waitMode) return;
+    engine.setWaitTargets(getWaitTargets({ events: sessionEvents, loopEnabled, loopStart, loopEnd }));
+  }, [engine, sessionEvents, waitMode, loopEnabled, loopStart, loopEnd]);
+
+  // Reflect wait mode on the engine (and switch it off on unmount).
+  useEffect(() => {
+    engine?.setWaitMode(waitMode);
+    return () => {
+      engine?.setWaitMode(false);
+    };
+  }, [engine, waitMode]);
+
+  // In wait mode, playing any note moves the lesson on to the next target.
+  useEffect(() => {
+    if (!engine || !waitMode || !noteSource) return;
+    return noteSource.subscribeEvents((event) => {
+      if (event.type === "noteon" && status === "waiting") engine.resume();
+    });
+  }, [engine, noteSource, status, waitMode]);
+
   const lastNote = result?.performedNotes[result.performedNotes.length - 1] ?? null;
+  const lastPlayedOnset = lastNote?.onset ?? null;
   const isComplete = status === "complete";
   const showSummary = isComplete && result !== null && result.counts.performed > 0;
+
+  const retryPoint = useMemo(
+    () => getRetryPoint(getLessonTime(), loopEnabled, loopStart, lastPlayedOnset),
+    [getLessonTime, lastPlayedOnset, loopEnabled, loopStart],
+  );
+  const retry = () => {
+    if (!engine) return;
+    engine.seek(retryPoint);
+    engine.play();
+  };
+
+  const enableMic = () => { void mic.start(); };
+  const disableMic = () => { mic.stop(); };
+  const micIsListening = micState.status === "listening";
+  const micActive = input === "microphone" && micIsListening;
 
   return (
     <section className="practice-panel" aria-labelledby="practice-title">
@@ -100,13 +223,58 @@ export function PracticePanel({ events, controller, getLessonTime, status, durat
           <p className="eyebrow">Practice / 05B</p>
           <h2 id="practice-title">Practice scoring</h2>
         </div>
-        <p className="practice-note"><Gauge size={13} /> Deterministic matching of your MIDI performance against the lesson, computed locally.</p>
+        <p className="practice-note"><Gauge size={13} /> Deterministic matching of your performance against the lesson, computed locally.</p>
       </div>
 
       <div className="practice-options">
+        <fieldset className="practice-input">
+          <legend>Practice input</legend>
+          <label className="practice-input-option">
+            <input
+              type="radio"
+              name="practice-input"
+              value="midi"
+              checked={input === "midi"}
+              onChange={() => setInput("midi")}
+            />
+            <Piano size={14} />
+            MIDI keyboard
+          </label>
+          <label className="practice-input-option">
+            <input
+              type="radio"
+              name="practice-input"
+              value="microphone"
+              checked={input === "microphone"}
+              onChange={() => setInput("microphone")}
+            />
+            <Mic size={14} />
+            Microphone
+          </label>
+        </fieldset>
+        <fieldset className="practice-focus">
+          <legend>Focus</legend>
+          {PRACTICE_FOCUS_ORDER.map((id) => (
+            <label key={id} className="practice-focus-option">
+              <input
+                type="radio"
+                name="practice-focus"
+                value={id}
+                checked={focus === id}
+                onChange={() => setFocus(id)}
+              />
+              <span>{PRACTICE_FOCUS_META[id].label}</span>
+              <em>{PRACTICE_FOCUS_META[id].description}</em>
+            </label>
+          ))}
+        </fieldset>
         <label className="practice-toggle">
           <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
           Score my playing
+        </label>
+        <label className="practice-toggle">
+          <input type="checkbox" aria-label="Pause at each note" checked={waitMode} onChange={(event) => setWaitMode(event.target.checked)} disabled={!engine} />
+          Pause at each note
         </label>
         <label className="practice-preset">
           Strictness
@@ -122,13 +290,65 @@ export function PracticePanel({ events, controller, getLessonTime, status, durat
         </label>
       </div>
 
-      {!enabled && <p className="practice-hint">Turn on scoring, then play along with the lesson on your MIDI keyboard to see live feedback here.</p>}
+      {input === "microphone" && (
+        <div className="practice-mic" aria-label="Microphone input">
+          <div className="practice-mic-actions">
+            <button
+              type="button"
+              className="practice-mic-toggle"
+              onClick={micIsListening ? disableMic : enableMic}
+              disabled={micState.status === "requesting"}
+              aria-pressed={micIsListening}
+            >
+              {micState.status === "listening" ? "Disable microphone" : micState.status === "requesting" ? "Requesting permission…" : "Enable microphone"}
+            </button>
+            <button
+              type="button"
+              className="practice-mic-calibrate"
+              onClick={() => { void mic.calibrateNoise(); }}
+              disabled={!micIsListening || micState.calibrating}
+            >
+              {micState.calibrating ? "Calibrating…" : "Calibrate noise"}
+            </button>
+          </div>
+          <p className="practice-mic-status" role="status">{micStatusLabel(micState)}</p>
+          <div className="practice-mic-meter" role="meter" aria-label="Input level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(micState.level * 100)}>
+            <div className="practice-mic-meter-fill" style={{ width: `${Math.min(100, Math.max(0, micState.level * 100))}%` }} />
+          </div>
+          <div className="practice-mic-readings">
+            <span>Note <strong>{micState.noteName ?? "—"}</strong></span>
+            <span>Confidence <strong>{Math.round(micState.confidence * 100)}%</strong></span>
+            <span>Tuning <strong>{micState.cents === null ? "—" : `${micState.cents > 0 ? "+" : ""}${Math.round(micState.cents)}¢`}</strong></span>
+          </div>
+          <label className="practice-mic-threshold">
+            Noise threshold <output>{micState.noiseThreshold.toFixed(3)}</output>
+            <input aria-label="Noise threshold" type="range" min="0.004" max="0.3" step="0.002" value={micState.noiseThreshold} onChange={(event) => mic.setNoiseThreshold(Number(event.target.value))} disabled={!micIsListening} />
+          </label>
+          <p className="practice-privacy">Audio is analysed locally in your browser and never recorded, stored, uploaded, or transmitted. Microphone mode works best with one note at a time; MIDI keyboards are more accurate.</p>
+        </div>
+      )}
+
+      {status === "waiting" && (
+        <div className="practice-waiting" role="status">
+          <strong>Waiting — play the next note to continue</strong>
+          <button type="button" onClick={() => engine?.resume()} disabled={!engine}><SkipForward size={13} /> Skip to next</button>
+        </div>
+      )}
+
+      {!enabled && (
+        <p className="practice-hint">
+          Turn on scoring, then play along with the lesson{input === "microphone" ? " on your microphone" : " on your MIDI keyboard"} to see live feedback here.
+        </p>
+      )}
 
       {enabled && !showSummary && (
         <div className="practice-live" aria-live="polite">
           <div className="practice-live-heading">
             <span className="eyebrow">Live feedback</span>
-            <span className="practice-status-label">{status === "playing" ? "Listening" : status === "count-in" ? "Count-in" : status === "paused" ? "Paused" : "Ready"}</span>
+            <span className="practice-status-label">
+              {micActive ? "Listening (mic)" : status === "waiting" ? "Waiting" : status === "playing" ? "Listening" : status === "count-in" ? "Count-in" : status === "paused" ? "Paused" : "Ready"}
+              {engine?.loopEnabled && <span className="practice-loop-iteration"> Loop {engine.loopIteration}</span>}
+            </span>
           </div>
           <div className="practice-last-note">
             {lastNote ? (
@@ -154,6 +374,9 @@ export function PracticePanel({ events, controller, getLessonTime, status, durat
             <span>Wrong <strong>{result?.counts.wrong ?? 0}</strong></span>
             <span>Extra <strong>{result?.counts.extra ?? 0}</strong></span>
             <span>Missed <strong>{result?.counts.missed ?? 0}</strong></span>
+          </div>
+          <div className="practice-live-actions">
+            <button type="button" className="practice-retry" onClick={retry} disabled={!engine}>Retry section</button>
           </div>
         </div>
       )}

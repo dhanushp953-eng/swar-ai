@@ -239,3 +239,42 @@ describe("presets", () => {
     expect(strict.counts.extra).toBe(1);
   });
 });
+
+describe("rhythm-only practice (ignorePitch)", () => {
+  const RHYTHM = {
+    ...STANDARD,
+    ignorePitch: true,
+    weights: { ...STANDARD.weights, pitch: 0 },
+  };
+
+  it("accepts any pitch inside the window as a correct attempt", () => {
+    const performed = [p("p1", 65, "F4", 0.02, 0.5)];
+    const result = scorePerformance(SCALE, [performed[0]], RHYTHM, { endTime: 0.6 });
+    expect(result.counts).toMatchObject({ correct: 1, wrong: 0, extra: 0 });
+    expect(result.performedNotes[0]).toMatchObject({
+      classification: "correct",
+      matchedEventId: "e1",
+      matchedEventName: "C4",
+    });
+    expect(result.expectedNotes.find((item) => item.eventId === "e1")?.classification).toBe("matched");
+  });
+
+  it("still counts timing deviations as early/late", () => {
+    const performed = [p("p1", 65, "F4", 0.9, 1.4)];
+    const result = scorePerformance(SCALE, [performed[0]], RHYTHM, { endTime: 1.4 });
+    expect(result.counts).toMatchObject({ early: 1, correct: 0, wrong: 0 });
+  });
+
+  it("keeps out-of-window notes extra and marks the event missed", () => {
+    const performed = [p("p1", 65, "F4", 5, 5.5)];
+    const result = scorePerformance(SCALE, [performed[0]], RHYTHM, { endTime: 5.5 });
+    expect(result.counts.extra).toBe(1);
+    expect(result.expectedNotes.find((item) => item.eventId === "e1")?.classification).toBe("missed");
+  });
+
+  it("scores the same wrong-pitch note as wrong when pitch is required", () => {
+    const performed = [p("p1", 65, "F4", 0.02, 0.5)];
+    const result = scorePerformance(SCALE, [performed[0]], STANDARD, { endTime: 0.6 });
+    expect(result.counts).toMatchObject({ wrong: 1, correct: 0 });
+  });
+});

@@ -4,6 +4,7 @@ import { isFreshStart, isPracticeActive } from "./usePracticeSession";
 describe("isPracticeActive", () => {
   it("only scores note-ons while the lesson is actively playing", () => {
     expect(isPracticeActive("playing")).toBe(true);
+    expect(isPracticeActive("waiting")).toBe(true);
     expect(isPracticeActive("idle")).toBe(false);
     expect(isPracticeActive("count-in")).toBe(false);
     expect(isPracticeActive("paused")).toBe(false);
@@ -14,9 +15,11 @@ describe("isPracticeActive", () => {
 describe("isFreshStart", () => {
   it("starts a fresh attempt when the lesson returns to idle/count-in from a run", () => {
     expect(isFreshStart("playing", "idle")).toBe(true);
+    expect(isFreshStart("waiting", "idle")).toBe(true);
     expect(isFreshStart("paused", "idle")).toBe(true);
     expect(isFreshStart("complete", "idle")).toBe(true);
     expect(isFreshStart("playing", "count-in")).toBe(true);
+    expect(isFreshStart("waiting", "count-in")).toBe(true);
     expect(isFreshStart("paused", "count-in")).toBe(true);
   });
 
@@ -25,7 +28,9 @@ describe("isFreshStart", () => {
     expect(isFreshStart("idle", "count-in")).toBe(false);
     expect(isFreshStart("count-in", "playing")).toBe(false);
     expect(isFreshStart("playing", "paused")).toBe(false);
-    expect(isFreshStart("paused", "playing")).toBe(false);
+    expect(isFreshStart("waiting", "paused")).toBe(false);
+    expect(isFreshStart("paused", "waiting")).toBe(false);
+    expect(isFreshStart("waiting", "playing")).toBe(false);
     expect(isFreshStart("playing", "complete")).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 export type LessonHand = "left" | "right";
 export type HandMode = LessonHand | "both";
-export type LessonStatus = "idle" | "count-in" | "playing" | "paused" | "complete";
+export type LessonStatus = "idle" | "count-in" | "playing" | "paused" | "waiting" | "complete";
 
 export type NoteEvent = {
   id: string;

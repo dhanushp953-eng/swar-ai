@@ -46,11 +46,32 @@ type LessonEngine = {
   setGeneratedVolume: (volume: number) => void;
   syncOffsetMs: number;
   setSyncOffsetMs: (offsetMs: number) => void;
+  /** Pause playback at each wait target until the user resumes (wait mode). */
+  waitMode: boolean;
+  setWaitMode: (enabled: boolean) => void;
+  /** Lesson-time onsets where wait mode should pause. */
+  setWaitTargets: (targets: number[]) => void;
+  /** Continue playback after a wait-mode pause. */
+  resume: () => void;
+  /** How many times the loop range has restarted during the current run. */
+  loopIteration: number;
 };
 
 const RENDER_INTERVAL = 1000 / 30;
+const WAIT_LOOKAHEAD_SECONDS = 0.05;
 const getTransport = () => Tone.getTransport();
 const readAudioElement = (ref: RefObject<HTMLAudioElement | null>) => ref.current;
+
+/** Earliest unhandled wait target not more than `lookahead` seconds ahead. */
+function findNextWaitTarget(targets: Set<number>, now: number, handled: number): number | null {
+  let best: number | null = null;
+  for (const target of targets) {
+    if (target <= handled + 0.001) continue;
+    if (target > now + WAIT_LOOKAHEAD_SECONDS) continue;
+    if (best === null || target < best) best = target;
+  }
+  return best;
+}
 
 export function useLessonEngine(exercise: LessonExercise, options: LessonEngineOptions = {}): LessonEngine {
   const internalAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -73,6 +94,8 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
   const [syncOffsetMs, setSyncOffsetMsState] = useState(0);
   const [preservesPitchSupported, setPreservesPitchSupported] = useState(true);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [waitMode, setWaitModeState] = useState(false);
+  const [loopIteration, setLoopIterationState] = useState(0);
 
   const statusRef = useRef<LessonStatus>("idle");
   const phaseRef = useRef<"count-in" | "playing" | null>(null);
@@ -98,6 +121,10 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
   const originalVolumeRef = useRef(1);
   const generatedVolumeRef = useRef(-8);
   const syncOffsetRef = useRef(0);
+  const waitModeRef = useRef(false);
+  const waitTargetsRef = useRef<Set<number>>(new Set());
+  const lastWaitHandledRef = useRef(0);
+  const loopIterationRef = useRef(0);
   const scheduleExternalPlaybackRef = useRef<() => void>(() => undefined);
   const schedulePlaybackRef = useRef<(includeCountIn: boolean) => void>(() => undefined);
   const tickRef = useRef<(timestamp: number) => void>(() => undefined);
@@ -255,6 +282,9 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
         transportStartRef.current = 0;
         countInRef.current = false;
         phaseRef.current = "playing";
+        lastWaitHandledRef.current = Math.max(0, loopStartRef.current - 0.001);
+        loopIterationRef.current += 1;
+        setLoopIterationState(loopIterationRef.current);
         setEngineTime(loopStartRef.current);
         schedulePlaybackRef.current(false);
         getTransport().start();
@@ -279,9 +309,26 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       if (isAudioMaster) {
         const audio = readAudioElement(audioRef);
         const audioTime = getAudioLessonTime();
-        if (audio && loopEnabledRef.current && audioTime >= loopEndRef.current - 0.02 && loopEndRef.current > loopStartRef.current) {
+        const waitTarget = waitModeRef.current
+          ? findNextWaitTarget(waitTargetsRef.current, audioTime, lastWaitHandledRef.current)
+          : null;
+        if (waitTarget !== null) {
+          clearScheduled();
+          synthRef.current?.releaseAll();
+          audio?.pause();
+          if (audio) audio.currentTime = getAudioSeekTime(waitTarget, syncOffsetRef.current, exercise.duration);
+          currentTimeRef.current = waitTarget;
+          lastWaitHandledRef.current = waitTarget;
+          phaseRef.current = null;
+          setEngineTime(waitTarget);
+          setEngineStatus("waiting");
+          stopTicker();
+        } else if (audio && loopEnabledRef.current && audioTime >= loopEndRef.current - 0.02 && loopEndRef.current > loopStartRef.current) {
           clearScheduled();
           audio.currentTime = getAudioSeekTime(loopStartRef.current, syncOffsetRef.current, exercise.duration);
+          lastWaitHandledRef.current = Math.max(0, loopStartRef.current - 0.001);
+          loopIterationRef.current += 1;
+          setLoopIterationState(loopIterationRef.current);
           setEngineTime(loopStartRef.current);
           scheduleExternalPlaybackRef.current();
         } else if (audio?.ended) {
@@ -314,7 +361,24 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
           ? getLessonTimeFromClock(elapsed, lessonStartRef.current, speedRef.current, getCountInDuration(exercise.bpm, speedRef.current), exercise.duration)
           : getRunningTime());
       } else {
-        setEngineTime(getRunningTime());
+        const nextTime = getRunningTime();
+        const waitTarget = waitModeRef.current
+          ? findNextWaitTarget(waitTargetsRef.current, nextTime, lastWaitHandledRef.current)
+          : null;
+        if (waitTarget !== null) {
+          clearScheduled();
+          synthRef.current?.releaseAll();
+          getTransport().pause();
+          currentTimeRef.current = waitTarget;
+          lastWaitHandledRef.current = waitTarget;
+          phaseRef.current = null;
+          countInRef.current = false;
+          setEngineTime(waitTarget);
+          setEngineStatus("waiting");
+          stopTicker();
+        } else {
+          setEngineTime(nextTime);
+        }
       }
     }
     tickerRef.current = window.requestAnimationFrame(tickRef.current);
@@ -367,6 +431,11 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       phaseRef.current = includeCountIn ? "count-in" : "playing";
       lessonStartRef.current = currentTimeRef.current;
       transportStartRef.current = getTransport().seconds;
+      if (isFresh) {
+        lastWaitHandledRef.current = currentTimeRef.current;
+        loopIterationRef.current = 0;
+        setLoopIterationState(0);
+      }
       schedulePlayback(includeCountIn);
       getTransport().start();
       setEngineStatus(includeCountIn ? "count-in" : "playing");
@@ -408,6 +477,9 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       phaseRef.current = null;
       countInRef.current = false;
       setCountInBeat(0);
+      lastWaitHandledRef.current = 0;
+      loopIterationRef.current = 0;
+      setLoopIterationState(0);
       setEngineTime(0);
       setEngineStatus("idle");
       stopTicker();
@@ -420,13 +492,60 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
     phaseRef.current = null;
     countInRef.current = false;
     setCountInBeat(0);
+    lastWaitHandledRef.current = 0;
+    loopIterationRef.current = 0;
+    setLoopIterationState(0);
     setEngineTime(0);
     setEngineStatus("idle");
     stopTicker();
   }, [audioRef, clearScheduled, exercise.duration, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);
 
+  const resume = useCallback(() => {
+    if (statusRef.current !== "waiting") return;
+    if (isAudioMaster) {
+      const audio = readAudioElement(audioRef);
+      if (!audio) return;
+      const resumeTime = currentTimeRef.current;
+      void ensureAudio().then(() => {
+        audio.currentTime = getAudioSeekTime(resumeTime, syncOffsetRef.current, exercise.duration);
+        void audio.play().catch(() => {
+          setAudioError("Playback needs a browser gesture. Press resume again to start it.");
+        });
+        phaseRef.current = "playing";
+        setEngineStatus("playing");
+        scheduleExternalPlaybackRef.current();
+        startTicker();
+      });
+      return;
+    }
+    const resumeTime = currentTimeRef.current;
+    void ensureAudio().then(() => {
+      clearScheduled();
+      getTransport().stop();
+      getTransport().position = 0;
+      lessonStartRef.current = resumeTime;
+      transportStartRef.current = getTransport().seconds;
+      countInRef.current = false;
+      phaseRef.current = "playing";
+      schedulePlayback(false);
+      getTransport().start();
+      setEngineStatus("playing");
+      startTicker();
+    });
+  }, [audioRef, clearScheduled, ensureAudio, exercise.duration, isAudioMaster, schedulePlayback, setEngineStatus, startTicker]);
+
+  const setWaitMode = useCallback((enabled: boolean) => {
+    waitModeRef.current = enabled;
+    setWaitModeState(enabled);
+    if (!enabled && statusRef.current === "waiting") resume();
+  }, [resume]);
+
+  const setWaitTargets = useCallback((targets: number[]) => {
+    waitTargetsRef.current = new Set(targets.map((target) => clampLessonTime(target, exercise.duration)));
+  }, [exercise.duration]);
   const seek = useCallback((time: number) => {
     const nextTime = clampLessonTime(time, exercise.duration);
+    lastWaitHandledRef.current = nextTime;
     if (isAudioMaster) {
       const wasPlaying = phaseRef.current === "playing";
       clearScheduled();
@@ -697,5 +816,5 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
     };
   }, [audioRef, clearScheduled, stopTicker]);
 
-  return { currentTime, status, countInBeat, speed, handMode, metronome, loopEnabled, loopStart, loopEnd, play, pause, restart, seek, setSpeed, setHandMode, setMetronome, setLoopEnabled, setLoopRange, isAudioMaster, audioRef, preservesPitchSupported, audioError, outputMode, setOutputMode, originalVolume, setOriginalVolume, generatedVolume, setGeneratedVolume, syncOffsetMs, setSyncOffsetMs };
+  return { currentTime, status, countInBeat, speed, handMode, metronome, loopEnabled, loopStart, loopEnd, play, pause, restart, seek, setSpeed, setHandMode, setMetronome, setLoopEnabled, setLoopRange, isAudioMaster, audioRef, preservesPitchSupported, audioError, outputMode, setOutputMode, originalVolume, setOriginalVolume, generatedVolume, setGeneratedVolume, syncOffsetMs, setSyncOffsetMs, waitMode, setWaitMode, setWaitTargets, resume, loopIteration };
 }

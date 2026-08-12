@@ -36,6 +36,8 @@ export type PracticeConfig = {
   durationTolerance: number;
   weights: { pitch: number; timing: number; duration: number };
   penalties: { missed: number; extra: number };
+  /** Rhythm-only practice: any pitch inside the window satisfies the event. */
+  ignorePitch?: boolean;
 };
 
 export const PRACTICE_PRESETS: Record<PracticePresetId, PracticeConfig> = {
@@ -211,7 +213,7 @@ function performedResultFor(
     };
   }
   const deviation = note.onset - matched.event.start;
-  const isCorrectPitch = matched.event.midi === note.midi;
+  const isCorrectPitch = config.ignorePitch === true || matched.event.midi === note.midi;
   const classificationSafe: "correct" | "early" | "late" | "wrong" = isCorrectPitch
     ? classifyOnset(note.onset, matched.event.start, config).timing
     : "wrong";
@@ -257,7 +259,10 @@ export function matchNotes(
 
   for (const note of performedSorted) {
     const samePitch = pending.filter(
-      (p) => !p.matched && p.event.midi === note.midi && withinWindow(note.onset, p.event.start, config),
+      (p) =>
+        !p.matched &&
+        (config.ignorePitch === true || p.event.midi === note.midi) &&
+        withinWindow(note.onset, p.event.start, config),
     );
     if (samePitch.length > 0) {
       const matched = pickNearest(samePitch, note.onset);
