@@ -26,4 +26,16 @@ describe("Piano highlighting", () => {
     expect(html).toContain('class="piano-key black-key is-midi"');
     expect(html).toContain('class="piano-key white-key"');
   });
+
+  it("shows an Enable sound button when audio is locked", () => {
+    const html = renderToString(<Piano midiHeldNotes={new Set([60])} />);
+    expect(html).toContain("Enable sound");
+    expect(html).toMatch(/<button[^>]*class="audio-enable"[^>]*>.*Enable sound.*<\/button>/);
+  });
+
+  it("always renders the Test sound button for diagnostics", () => {
+    const html = renderToString(<Piano midiHeldNotes={new Set([60])} />);
+    expect(html).toContain("Test sound");
+    expect(html).toMatch(/<button[^>]*class="audio-test"[^>]*>.*Test sound.*<\/button>/);
+  });
 });

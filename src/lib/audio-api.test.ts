@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AudioApiError,
   type AnalysisJob,
+  ANALYSIS_TIMEOUT_MS,
   getAudioApiUrl,
   isAnalysisJob,
   mapJobStatus,
@@ -126,5 +127,38 @@ describe("audio upload transport", () => {
     vi.stubGlobal("XMLHttpRequest", NetworkXmlHttpRequest);
     const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
     await expect(request).rejects.toMatchObject({ code: "network_error" });
+  });
+
+  it("surfaces a timeout as a retryable timeout error, not a network error", async () => {
+    class TimeoutXmlHttpRequest extends FakeXmlHttpRequest {
+      send(body: FormData) {
+        this.body = body;
+        this.ontimeout?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", TimeoutXmlHttpRequest);
+    const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
+    await expect(request).rejects.toMatchObject({ code: "timeout" });
+  });
+
+  it("does not auto-retry after a failure (caller must retry explicitly)", async () => {
+    let sends = 0;
+    class OnceXmlHttpRequest extends FakeXmlHttpRequest {
+      send(body: FormData) {
+        this.body = body;
+        sends += 1;
+        this.onerror?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", OnceXmlHttpRequest);
+    const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
+    await expect(request).rejects.toMatchObject({ code: "network_error" });
+    expect(sends).toBe(1);
+  });
+});
+
+describe("analysis timeout budget", () => {
+  it("allows the full analysis round-trip up to 120 seconds", () => {
+    expect(ANALYSIS_TIMEOUT_MS).toBe(120_000);
   });
 });

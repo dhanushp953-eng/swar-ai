@@ -211,8 +211,8 @@ export function PracticeResults({ results, hasStorage, exportStatus, onDelete, o
           </fieldset>
 
           <ul className="practice-results-list" aria-label="Saved practice attempts">
-            {filtered.map((result) => (
-              <li key={result.id} className="practice-results-row">
+            {filtered.map((result, index) => (
+              <li key={`${result.id}-${index}`} className="practice-results-row">
                 <div className="practice-results-score">
                   <strong>{result.overall}</strong>
                   <span>/ 100</span>

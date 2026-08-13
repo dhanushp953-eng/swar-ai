@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Tone from "tone";
 import type { InstrumentType, PianoKey } from "@/types/music";
 import { PianoVoiceController } from "@/lib/audio/piano-voices";
+import { useToneAudioUnlock } from "@/lib/audio/audio-unlock";
 
 const synthFactories: Record<InstrumentType, () => Tone.PolySynth> = {
   piano: () => new Tone.PolySynth(Tone.Synth, { oscillator: { type: "triangle" }, envelope: { attack: 0.01, decay: 0.4, sustain: 0.18, release: 1.2 } }),
@@ -58,15 +59,17 @@ export function usePiano(instrument: InstrumentType, volume: number, sustain: bo
     syncActiveNotes();
   }, [sustain, syncActiveNotes]);
 
+  const { state: audioState, unlock, getRawContext } = useToneAudioUnlock();
+
   const press = useCallback(async (key: PianoKey) => {
     const voices = voicesRef.current;
     if (!voices) return;
-    // Register the press synchronously so a key-up during Tone.start() still
+    // Register the press synchronously so a key-up during unlock() still
     // cancels the pending attack instead of leaving a stuck voice.
     if (!voices.press(key.note)) return;
     syncActiveNotes();
     try {
-      await Tone.start();
+      await unlock();
     } catch {
       voices.release(key.note);
       syncActiveNotes();
@@ -74,7 +77,7 @@ export function usePiano(instrument: InstrumentType, volume: number, sustain: bo
     }
     voices.attack(key.note);
     syncActiveNotes();
-  }, [syncActiveNotes]);
+  }, [syncActiveNotes, unlock]);
 
   const release = useCallback((key: PianoKey) => {
     const voices = voicesRef.current;
@@ -87,6 +90,19 @@ export function usePiano(instrument: InstrumentType, volume: number, sustain: bo
     voicesRef.current?.releaseAll();
     syncActiveNotes();
   }, [syncActiveNotes]);
+
+  // Diagnostic: play A4 for 250ms through the SAME synth + Tone destination so
+  // a silent phone can tell context-unlock failure apart from routing failure.
+  const testSound = useCallback(() => {
+    const voices = voicesRef.current;
+    if (!voices) return;
+    void unlock().then(() => {
+      if (voices.press("A4")) {
+        voices.attack("A4");
+        window.setTimeout(() => voices.release("A4"), 250);
+      }
+    });
+  }, [unlock]);
 
   // Release every active voice on window blur or page hide, and dispose the
   // engine on unmount so nothing can keep ringing.
@@ -105,5 +121,5 @@ export function usePiano(instrument: InstrumentType, volume: number, sustain: bo
     };
   }, [releaseAllNotes]);
 
-  return { activeNotes, press, release, releaseAllNotes };
+  return { activeNotes, press, release, releaseAllNotes, audioState, unlock, getRawContext, testSound };
 }

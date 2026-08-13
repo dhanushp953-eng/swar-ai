@@ -1,7 +1,15 @@
+import { resolveServiceBaseUrl } from "./service-url";
+
 export const SUPPORTED_AUDIO_EXTENSIONS = ["wav", "mp3", "m4a", "ogg"] as const;
 export const SUPPORTED_AUDIO_LABEL = "WAV, MP3, M4A or OGG";
 export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-export const UPLOAD_TIMEOUT_MS = 120_000;
+/**
+ * Bounds the entire analysis round-trip (file upload + backend processing + any
+ * status polling) in the browser. The backend analyses audio synchronously
+ * inside the POST, so a single 345 KB clip can take tens of seconds; 120 s is a
+ * safe ceiling that still fails fast if FastAPI is unreachable or wedged.
+ */
+export const ANALYSIS_TIMEOUT_MS = 120_000;
 export const POLL_INTERVAL_MS = 900;
 
 export type SupportedAudioExtension = (typeof SUPPORTED_AUDIO_EXTENSIONS)[number];
@@ -61,7 +69,7 @@ export class AudioApiError extends Error {
 }
 
 export function getAudioApiUrl(): string {
-  return process.env.NEXT_PUBLIC_AUDIO_API_URL?.trim() || "http://localhost:8000";
+  return resolveServiceBaseUrl(process.env.NEXT_PUBLIC_AUDIO_API_URL);
 }
 
 export function getMaxUploadBytes(): number {
@@ -149,7 +157,7 @@ function requestJson(path: string, signal: AbortSignal): Promise<AnalysisJob> {
     const timeout = globalThis.setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, UPLOAD_TIMEOUT_MS);
+    }, ANALYSIS_TIMEOUT_MS);
     const abort = () => controller.abort();
     signal.addEventListener("abort", abort, { once: true });
     fetch(`${getAudioApiUrl()}${path}`, { signal: controller.signal, headers: { Accept: "application/json" } })
@@ -178,7 +186,7 @@ export function uploadAudio(file: File, signal: AbortSignal, onProgress: UploadP
     const timeout = globalThis.setTimeout(() => {
       timedOut = true;
       xhr.abort();
-    }, UPLOAD_TIMEOUT_MS);
+    }, ANALYSIS_TIMEOUT_MS);
     const abort = () => xhr.abort();
     const finish = () => {
       globalThis.clearTimeout(timeout);
@@ -186,7 +194,7 @@ export function uploadAudio(file: File, signal: AbortSignal, onProgress: UploadP
     };
     xhr.open("POST", `${getAudioApiUrl()}/api/analyze`);
     xhr.responseType = "text";
-    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.timeout = ANALYSIS_TIMEOUT_MS;
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
     };

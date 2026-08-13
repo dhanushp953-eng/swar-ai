@@ -2,6 +2,7 @@ import type { PracticeFocus } from "@/lib/practice/modes";
 import type { ScoreResult } from "@/lib/practice/scoring";
 import type { StoredPracticeResult } from "@/features/practice/results-store";
 import type { LessonExercise } from "@/types/lesson";
+import { resolveServiceBaseUrl } from "./service-url";
 
 export type TutorPracticeMode = "full" | "melody" | "rhythm";
 
@@ -233,7 +234,7 @@ function isTutorResponse(value: unknown): value is TutorAdviceResponse {
 }
 
 export function getTutorApiUrl(): string {
-  return process.env.NEXT_PUBLIC_AUDIO_API_URL?.trim() || "http://localhost:8000";
+  return resolveServiceBaseUrl(process.env.NEXT_PUBLIC_AUDIO_API_URL);
 }
 
 function getErrorPayload(payload: unknown): { code: string; message: string } {

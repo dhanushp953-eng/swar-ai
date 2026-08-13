@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as Tone from "tone";
 import type { InstrumentName } from "@/types/music";
 import { PianoVoiceController } from "@/lib/audio/piano-voices";
+import { useToneAudioUnlock } from "@/lib/audio/audio-unlock";
 
 function configureSynth(synth: Tone.PolySynth, instrument: InstrumentName): void {
   const envelope = instrument === "bell" ? { attack: 0.01, decay: 1.4, sustain: 0.1, release: 1.5 } : instrument === "warm-pad" ? { attack: 0.25, decay: 0.2, sustain: 0.85, release: 1.5 } : { attack: 0.005, decay: 0.3, sustain: 0.35, release: 0.8 };
@@ -44,16 +45,18 @@ export function usePianoAudio() {
     synthRef.current.volume.value = volume;
   }, [instrument, volume]);
 
+  const { state: audioState, unlock, getRawContext } = useToneAudioUnlock();
+
   const playNote = useCallback((note: string) => {
     const voices = ensureVoices();
-    // Register the press synchronously so a key-up during Tone.start() still
+    // Register the press synchronously so a key-up during unlock() still
     // cancels the pending attack (no stuck voices from the async race).
     if (!voices.press(note)) return;
-    void Tone.start().then(
+    void unlock().then(
       () => voices.attack(note),
       () => voices.release(note),
     );
-  }, [ensureVoices]);
+  }, [ensureVoices, unlock]);
 
   const stopNote = useCallback((note: string) => {
     voicesRef.current?.release(note);
@@ -68,9 +71,18 @@ export function usePianoAudio() {
   }, []);
 
   const ensureReady = useCallback(async () => {
-    await Tone.start();
+    await unlock();
     ensureVoices();
-  }, [ensureVoices]);
+  }, [ensureVoices, unlock]);
+
+  // Diagnostic: play A4 for 250ms through the SAME synth + Tone destination so
+  // a silent phone can tell context-unlock failure apart from routing failure.
+  const testSound = useCallback(() => {
+    void unlock().then(() => {
+      playNote("A4");
+      window.setTimeout(() => stopNote("A4"), 250);
+    });
+  }, [unlock, playNote, stopNote]);
 
   const setVolume = useCallback((next: number) => {
     setVolumeState(next);
@@ -104,5 +116,5 @@ export function usePianoAudio() {
     };
   }, []);
 
-  return { playNote, stopNote, stopAllNotes, releaseAllNotes, ensureReady, volume, setVolume, instrument, setInstrument, sustain, setSustain };
+  return { playNote, stopNote, stopAllNotes, releaseAllNotes, ensureReady, volume, setVolume, instrument, setInstrument, sustain, setSustain, audioState, unlock, getRawContext, testSound };
 }

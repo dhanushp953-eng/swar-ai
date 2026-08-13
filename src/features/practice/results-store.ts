@@ -124,22 +124,40 @@ export function isStoredResult(value: unknown): value is StoredPracticeResult {
   return true;
 }
 
-/** Keeps only structurally valid entries, newest first, capped. */
+/** Keeps only structurally valid entries, newest first, capped.
+ *  Records that share an id (e.g. legacy collision-prone ids stored by an
+ *  older build) are collapsed to a single entry, keeping the newest valid
+ *  result so history is preserved rather than duplicated. */
 export function validateResultsArray(value: unknown): StoredPracticeResult[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .filter(isStoredResult)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, MAX_RESULTS);
+  const seen = new Set<string>();
+  const deduped: StoredPracticeResult[] = [];
+  for (const result of value.filter(isStoredResult).sort((a, b) => b.createdAt - a.createdAt)) {
+    if (seen.has(result.id)) continue;
+    seen.add(result.id);
+    deduped.push(result);
+  }
+  return deduped.slice(0, MAX_RESULTS);
 }
 
-/** Best-effort storage read; corrupted, truncated, or foreign payloads become empty. */
+/** Best-effort storage read; corrupted, truncated, or foreign payloads become empty.
+ *  When the stored payload contains duplicate ids (legacy collision-prone data),
+ *  the cleaned, newest-wins list is written back so the store self-repairs. */
 export function readResults(storage: StorageLike | null): StoredPracticeResult[] {
   if (!storage) return [];
   try {
     const raw = storage.getItem(STORAGE_KEY);
     if (raw === null) return [];
-    return validateResultsArray(JSON.parse(raw));
+    const results = validateResultsArray(JSON.parse(raw));
+    const repaired = JSON.stringify(results);
+    if (repaired !== raw) {
+      try {
+        storage.setItem(STORAGE_KEY, repaired);
+      } catch {
+        // repair is best-effort; the cleaned list is still returned
+      }
+    }
+    return results;
   } catch {
     return [];
   }

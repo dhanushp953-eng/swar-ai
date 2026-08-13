@@ -3,7 +3,6 @@ import uuid
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import Settings
@@ -11,6 +10,7 @@ from app.core.errors import AnalysisError
 from app.core.idempotency import InFlightRegistry
 from app.core.logging import configure_logging
 from app.core.rate_limit import RateLimiter
+from app.middleware.cors import LanCorsMiddleware
 from app.middleware.safety import SafetyMiddleware
 from app.schemas.ai import AIGenerateRequest, AIGenerateResponse, AIProviderStatusResponse
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
@@ -67,11 +67,11 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
         request_timeout_seconds=active_settings.ai_request_timeout_seconds,
     )
     app.add_middleware(
-        CORSMiddleware,
+        LanCorsMiddleware,
         allow_origins=active_settings.allowed_cors_origins,
-        allow_credentials=False,
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
+        reflect_lan=active_settings.cors_reflect_lan,
     )
 
     @app.exception_handler(AnalysisError)

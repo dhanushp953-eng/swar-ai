@@ -63,6 +63,7 @@ class Settings:
     temp_root: Path = Path("backend/.runtime")
     ffmpeg_binary: str = "ffmpeg"
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
+    cors_reflect_lan: bool = True
     transcription_engine: str = "auto"
     basic_pitch_enabled: bool = False
     gemini_api_key: str | None = field(default=None, repr=False, compare=False)
@@ -103,6 +104,7 @@ class Settings:
             temp_root=Path(os.getenv("TEMP_ROOT", str(cls.temp_root))),
             ffmpeg_binary=os.getenv("FFMPEG_BINARY", cls.ffmpeg_binary),
             cors_origins=os.getenv("CORS_ORIGINS", cls.cors_origins),
+            cors_reflect_lan=_env_bool(os.getenv("CORS_REFLECT_LAN"), cls.cors_reflect_lan),
             transcription_engine=engine,
             basic_pitch_enabled=_env_bool(os.getenv("BASIC_PITCH_ENABLED"), cls.basic_pitch_enabled),
             gemini_api_key=(os.getenv("GEMINI_API_KEY") or "").strip() or None,

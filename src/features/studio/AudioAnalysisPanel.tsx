@@ -29,7 +29,8 @@ const STATUS_LABELS: Record<UploadStatus, string> = {
 };
 
 const STATUS_STAGES: UploadStatus[] = ["ready", "uploading", "validating", "processing", "completed"];
-const ACCEPTED_AUDIO = ".wav,.mp3,.m4a,.ogg,audio/wav,audio/x-wav,audio/mpeg,audio/mp4,audio/ogg";
+const BUSY_LABEL = "Processing audio…";
+const ACCEPTED_AUDIO = "audio/*,.wav,.mp3,.m4a,.ogg";
 
 type AudioAnalysisPanelProps = {
   detectedLessonLoaded?: boolean;
@@ -92,6 +93,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     setStatus("ready");
     if (validationError) {
       setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     setFile(nextFile);
@@ -156,6 +158,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
 
   const isBusy = status === "uploading" || status === "validating" || status === "processing";
   const canUpload = Boolean(file && authorized && !isBusy);
+  const fileFormat = file ? (file.type || file.name.split(".").pop()?.toUpperCase() || "Unknown") : "";
 
   return <section className="audio-analysis-panel" aria-labelledby="audio-analysis-title">
     <div className="audio-analysis-heading">
@@ -172,7 +175,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
           className={`audio-dropzone ${dragging ? "is-dragging" : ""} ${fileError ? "has-error" : ""}`}
           role="button"
           tabIndex={0}
-          aria-label="Choose an audio file"
+          aria-label="Drop audio file here"
           onClick={() => fileInputRef.current?.click()}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -194,19 +197,19 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
             selectFile(event.dataTransfer.files[0] ?? null);
           }}
         >
-          <input ref={fileInputRef} className="audio-file-input" type="file" accept={ACCEPTED_AUDIO} onChange={(event) => selectFile(event.currentTarget.files?.[0] ?? null)} />
           <span className="audio-dropzone-icon"><UploadCloud size={20} /></span>
           <strong>{dragging ? "Drop it here" : "Drop an audio file here"}</strong>
           <span>or choose one from your device</span>
           <small>{SUPPORTED_AUDIO_LABEL} / up to {formatBytes(getMaxUploadBytes())}</small>
         </div>
+        <input ref={fileInputRef} key="audio-file-input" className="audio-choose-button" type="file" accept={ACCEPTED_AUDIO} aria-label="Choose an audio file" onChange={(event) => selectFile(event.currentTarget.files?.[0] ?? null)} />
         {fileError && <p className="audio-form-error" role="alert"><AlertTriangle size={14} />{fileError}</p>}
       </div>
 
       <div className="audio-analysis-side">
         {file && <div className="audio-file-card">
           <span className="audio-file-icon"><FileAudio size={18} /></span>
-          <div className="audio-file-details"><strong>{file.name}</strong><span>{formatBytes(file.size)} / {file.name.split(".").pop()?.toUpperCase()} / ready to analyse</span></div>
+          <div className="audio-file-details"><strong>{file.name}</strong><span>{formatBytes(file.size)} / {fileFormat} / ready to analyse</span></div>
           <button type="button" className="audio-icon-button" onClick={removeFile} aria-label="Remove selected file" disabled={isBusy}><X size={16} /></button>
         </div>}
         <label className="audio-consent"><input type="checkbox" checked={authorized} onChange={(event) => setAuthorized(event.target.checked)} /><span><ShieldCheck size={16} />I own this audio or have permission to analyse it.</span></label>
@@ -220,7 +223,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     </div>
 
     <div className="audio-status-region" aria-live="polite">
-      <div className="audio-status-header"><span className={`audio-status-dot status-${status}`} /> <strong>{STATUS_LABELS[status]}</strong><span>{status === "uploading" ? `${progress}% uploaded` : status === "completed" ? "Your local analysis is ready" : status === "failed" ? "Nothing was added to your lesson" : status === "cancelled" ? "Upload stopped" : ""}</span></div>
+      <div className="audio-status-header"><span className={`audio-status-dot status-${status}`} /> <strong>{isBusy ? BUSY_LABEL : STATUS_LABELS[status]}</strong><span>{status === "uploading" ? `${progress}% uploaded` : status === "completed" ? "Your local analysis is ready" : status === "failed" ? "Nothing was added to your lesson" : status === "cancelled" ? "Upload stopped" : ""}</span></div>
       <div className="audio-status-rail" aria-label={`Analysis status: ${STATUS_LABELS[status]}`}>
         {STATUS_STAGES.map((stage, index) => <div key={stage} className={`audio-status-step ${status === stage ? "is-current" : ""} ${statusIndex(status) > index ? "is-done" : ""}`}><span>{statusIndex(status) > index ? <Check size={11} /> : index + 1}</span>{STATUS_LABELS[stage]}</div>)}
       </div>

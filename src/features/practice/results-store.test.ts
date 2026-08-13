@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PRACTICE_PRESETS, scorePerformance, type PerformedNote, type ScoreNoteEvent } from "@/lib/practice/scoring";
 import {
   MAX_RESULTS,
@@ -6,6 +6,7 @@ import {
   addResult,
   clearResults,
   computeStats,
+  createResultId,
   createStoredResult,
   deleteResult,
   filterResults,
@@ -136,6 +137,60 @@ describe("readResults / validateResultsArray", () => {
   it("caps the history at MAX_RESULTS", () => {
     const many = Array.from({ length: MAX_RESULTS + 10 }, (_, index) => rawResult({ id: `r-${index}`, createdAt: index }));
     expect(validateResultsArray(many)).toHaveLength(MAX_RESULTS);
+  });
+
+  it("removes duplicate legacy ids on read, keeping the newest valid result", () => {
+    const legacy = [
+      rawResult({ id: "dup", createdAt: 100, overall: 50 }),
+      rawResult({ id: "dup", createdAt: 200, overall: 90 }),
+      rawResult({ id: "unique", createdAt: 150, overall: 70 }),
+    ];
+    const storage = makeStorage({ [STORAGE_KEY]: JSON.stringify(legacy) });
+    const results = readResults(storage);
+    expect(results.map((result) => result.id)).toEqual(["dup", "unique"]);
+    const duplicate = results.find((result) => result.id === "dup");
+    expect(duplicate?.createdAt).toBe(200);
+    expect(duplicate?.overall).toBe(90);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY) ?? "[]").map((result: StoredPracticeResult) => result.id)).toEqual(["dup", "unique"]);
+  });
+});
+
+describe("createResultId", () => {
+  it("produces collision-resistant ids across attempts created in the same millisecond", () => {
+    const first = createResultId();
+    const second = createResultId();
+    expect(first).not.toBe(second);
+    const storage = makeStorage();
+    addResult(storage, rawResult({ id: first, createdAt: 1000 }));
+    addResult(storage, rawResult({ id: second, createdAt: 1000 }));
+    const ids = readResults(storage).map((result) => result.id);
+    expect(ids).toHaveLength(2);
+    expect(ids).toEqual(expect.arrayContaining([first, second]));
+  });
+
+  it("falls back to a unique id when crypto.randomUUID is unavailable", () => {
+    vi.stubGlobal("crypto", { randomUUID: undefined } as unknown as Crypto);
+    try {
+      const a = createResultId();
+      const b = createResultId();
+      expect(a).not.toBe(b);
+      expect(a.startsWith("p-")).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("saving exactly once", () => {
+  it("stores a single attempt exactly once and never duplicates its id", () => {
+    const storage = makeStorage();
+    addResult(storage, rawResult({ id: "x", createdAt: 100 }));
+    expect(readResults(storage)).toHaveLength(1);
+    // A same-id re-add collapses to one record (newest wins) instead of duplicating.
+    addResult(storage, rawResult({ id: "x", createdAt: 200 }));
+    const results = readResults(storage);
+    expect(results).toHaveLength(1);
+    expect(results[0].createdAt).toBe(200);
   });
 });
 
