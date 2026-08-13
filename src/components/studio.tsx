@@ -1,14 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { LessonWorkspace } from "@/features/lesson/LessonWorkspace";
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { convertAnalysisJobToDetectedLesson, type DetectedLesson } from "@/features/lesson/detected-lesson";
 import { createLessonImportId } from "@/features/lesson/lesson-transfer";
-import { AudioAnalysisPanel } from "@/features/studio/AudioAnalysisPanel";
-import { LessonFilePanel } from "@/features/studio/LessonFilePanel";
-import { MidiKeyboardPanel } from "@/features/midi/MidiKeyboardPanel";
 import type { AnalysisJob } from "@/lib/audio-api";
 import type { LessonExercise } from "@/types/lesson";
+
+// Heavy, below-the-fold panels are loaded on demand so the initial bundle stays
+// small (Tone.js / Web MIDI are only fetched once the user scrolls to them).
+// ssr:false keeps browser-only audio/MIDI code out of server rendering.
+function PanelSkeleton({ label }: { label: string }) {
+  return (
+    <div className="panel-skeleton" aria-busy="true" aria-label={label}>
+      <span className="skeleton-bar" />
+    </div>
+  );
+}
+
+const AudioAnalysisPanel = dynamic(
+  () => import("@/features/studio/AudioAnalysisPanel").then((module) => ({ default: module.AudioAnalysisPanel })),
+  { ssr: false, loading: () => <PanelSkeleton label="Audio analysis" /> },
+);
+const LessonFilePanel = dynamic(
+  () => import("@/features/studio/LessonFilePanel").then((module) => ({ default: module.LessonFilePanel })),
+  { ssr: false, loading: () => <PanelSkeleton label="Lesson file" /> },
+);
+const MidiKeyboardPanel = dynamic(
+  () => import("@/features/midi/MidiKeyboardPanel").then((module) => ({ default: module.MidiKeyboardPanel })),
+  { ssr: false, loading: () => <PanelSkeleton label="MIDI keyboard" /> },
+);
+const LessonWorkspace = dynamic(
+  () => import("@/features/lesson/LessonWorkspace").then((module) => ({ default: module.LessonWorkspace })),
+  { ssr: false, loading: () => <PanelSkeleton label="Practice workspace" /> },
+);
 
 export function Studio() {
   const [detectedLesson, setDetectedLesson] = useState<DetectedLesson | null>(null);
@@ -18,19 +43,19 @@ export function Studio() {
   const detectedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [importedLesson, setImportedLesson] = useState<LessonExercise | null>(null);
   const [importedLessonKey, setImportedLessonKey] = useState<string | null>(null);
-  const setDetectedAudioUrl = (next: string | null) => {
+  const setDetectedAudioUrl = useCallback((next: string | null) => {
     detectedObjectUrlRef.current = next;
     setDetectedObjectUrl(next);
-  };
-  const stopDetectedAudio = () => {
+  }, []);
+  const stopDetectedAudio = useCallback(() => {
     const audio = detectedAudioRef.current;
     if (audio) {
       audio.pause();
       audio.removeAttribute("src");
       audio.load();
     }
-  };
-  const loadDetectedLesson = (file: File, job: AnalysisJob) => {
+  }, []);
+  const loadDetectedLesson = useCallback((file: File, job: AnalysisJob) => {
     const converted = convertAnalysisJobToDetectedLesson(file, job);
     setLessonLoadError(converted.error);
     if (converted.lesson) {
@@ -40,22 +65,22 @@ export function Studio() {
       stopDetectedAudio();
     }
     return converted.error;
-  };
-  const resetDetectedLesson = () => {
+  }, [setDetectedAudioUrl, stopDetectedAudio]);
+  const resetDetectedLesson = useCallback(() => {
     if (detectedObjectUrlRef.current) URL.revokeObjectURL(detectedObjectUrlRef.current);
     setDetectedAudioUrl(null);
     stopDetectedAudio();
     setDetectedLesson(null);
     setLessonLoadError(null);
-  };
-  const loadImportedLesson = (lesson: LessonExercise) => {
+  }, [setDetectedAudioUrl, stopDetectedAudio]);
+  const loadImportedLesson = useCallback((lesson: LessonExercise) => {
     setImportedLesson(lesson);
     setImportedLessonKey(createLessonImportId());
-  };
-  const removeImportedLesson = () => {
+  }, []);
+  const removeImportedLesson = useCallback(() => {
     setImportedLesson(null);
     setImportedLessonKey(null);
-  };
+  }, []);
   useEffect(() => () => {
     const url = detectedObjectUrlRef.current;
     if (url) URL.revokeObjectURL(url);

@@ -110,3 +110,4 @@ class HealthResponse(BaseModel):
     active_transcription_engine: str
     basic_pitch_available: bool
     basic_pitch_reason: str | None = None
+    warmup: Literal["warming", "ready", "failed"] = "ready"

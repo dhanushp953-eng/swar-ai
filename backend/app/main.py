@@ -1,5 +1,9 @@
+import asyncio
+import logging
+import os
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -38,12 +42,86 @@ def _ai_error(error: ProviderError) -> AnalysisError:
     return AnalysisError("ai_unavailable", "The AI service is temporarily unavailable.", 503)
 
 
+logger = logging.getLogger("app.startup")
+
+
+def _prime_librosa() -> None:
+    # Synchronous, CPU-bound: force the librosa/numba JIT paths to compile once.
+    # Raises on failure; the caller maps that to a "failed" warm-up status.
+    import numpy as np
+
+    import librosa
+
+    sr = 22050
+    samples = (0.01 * np.sin(2.0 * np.pi * 220.0 * np.arange(int(0.2 * sr)) / sr)).astype(np.float32)
+    _ = librosa.feature.rms(y=samples, frame_length=2048, hop_length=512)
+    _ = librosa.pyin(
+        samples,
+        fmin=librosa.note_to_hz("C2"),
+        fmax=librosa.note_to_hz("C7"),
+        sr=sr,
+        frame_length=2048,
+        hop_length=512,
+    )
+    try:
+        _ = librosa.yin(
+            samples,
+            fmin=librosa.note_to_hz("C2"),
+            fmax=librosa.note_to_hz("C7"),
+            sr=sr,
+            frame_length=2048,
+            hop_length=512,
+        )
+    except Exception:  # noqa: BLE001 - yin is a fallback; pyin is enough to prime
+        pass
+
+
+async def _run_warmup(app: FastAPI) -> None:
+    # Background warm-up: prime librosa off the event loop (in a worker thread)
+    # so /health and other endpoints stay responsive. Sets a status the health
+    # endpoint reports. A warm-up failure only means the first analysis request
+    # pays the JIT cost instead; it never breaks startup.
+    try:
+        await asyncio.to_thread(_prime_librosa)
+        app.state.warmup_status = "ready"
+        logger.info("Analysis warm-up completed: librosa JIT primed.")
+    except Exception as exc:  # noqa: BLE001 - warm-up must never break startup
+        logger.warning("Analysis warm-up failed: %s", exc)
+        app.state.warmup_status = "failed"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if os.environ.get("APP_SKIP_WARMUP") == "1":
+        app.state.warmup_status = "ready"
+        app.state.warmup_task = None
+        logger.info("Analysis warm-up skipped (APP_SKIP_WARMUP=1).")
+        yield
+    else:
+        app.state.warmup_status = "warming"
+        app.state.warmup_task = getattr(app.state, "warmup_task", None)
+        if app.state.warmup_task is None:
+            app.state.warmup_task = asyncio.create_task(_run_warmup(app))
+        try:
+            yield
+        finally:
+            task = getattr(app.state, "warmup_task", None)
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001 - cleanup only
+                    pass
+            app.state.warmup_task = None
+
+
 def create_app(settings: Settings | None = None, ai_service: AIService | None = None) -> FastAPI:
     active_settings = settings or Settings.from_env()
     app = FastAPI(
         title=active_settings.app_name,
         version=active_settings.analysis_version,
         description="Phase 3D validates authorised local audio and estimates rhythm and monophonic melody locally with librosa.",
+        lifespan=lifespan,
     )
     app.state.settings = active_settings
     app.state.jobs = JobStore()
@@ -96,6 +174,7 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
             active_transcription_engine="librosa.pyin",
             basic_pitch_available=False,
             basic_pitch_reason="Basic Pitch is intentionally not installed; Phase 3D uses librosa.pyin with a librosa.yin fallback.",
+            warmup=getattr(app.state, "warmup_status", "ready"),
         )
 
     @app.get("/api/ai/providers/status", response_model=AIProviderStatusResponse, tags=["ai"])
@@ -133,6 +212,14 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
     async def analyze(file: UploadFile = File(..., description="WAV, MP3, M4A, or OGG audio you own or are authorised to analyze."), authorized: bool | None = Form(default=None, description="Confirm that you own or are authorised to analyze this audio.")) -> JobResponse:
         if authorized is not True:
             raise AnalysisError("authorization_required", "Confirm that you own or are authorised to analyze this audio.", 403)
+        warmup_task = getattr(app.state, "warmup_task", None)
+        if warmup_task is not None and not warmup_task.done():
+            # A request arrived while the background warm-up is still priming librosa.
+            # Wait for the same single warm-up task rather than racing/re-priming it.
+            try:
+                await warmup_task
+            except Exception:  # noqa: BLE001 - warm-up already recorded its own status
+                pass
         job_id = str(uuid.uuid4())
         jobs: JobStore = app.state.jobs
         record = None
