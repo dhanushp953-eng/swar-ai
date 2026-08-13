@@ -3,6 +3,7 @@ import math
 import struct
 import wave
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -123,3 +124,20 @@ def test_unknown_job_is_rejected(app_factory):
         response = client.get("/api/jobs/not-a-real-job")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "job_not_found"
+
+
+def test_analysis_failure_returns_safe_message_without_internal_paths(app_factory, tmp_path: Path):
+    # A generic failure during processing must not leak internal paths or stack
+    # details to the client; the response stays generic and the temp file is
+    # cleaned up.
+    app = app_factory()
+    app.state.rhythm_analyzer.analyze = MagicMock(side_effect=RuntimeError("boom at C:\\secret\\internal\\path\\to\\librosa"))
+    with TestClient(app) as client:
+        response = post_wav(client)
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] == "analysis_failed"
+    assert body["error"]["message"] == "The audio could not be analyzed."
+    assert body["error"]["details"] == {}
+    assert "C:\\secret" not in str(body)
+    assert list(tmp_path.iterdir()) == []

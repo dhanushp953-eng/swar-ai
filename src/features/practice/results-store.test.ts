@@ -113,6 +113,54 @@ describe("createStoredResult", () => {
   });
 });
 
+describe("localStorage privacy (no raw audio/MIDI/mic/PII)", () => {
+  it("never persists raw audio, MIDI streams, microphone data, or base64 blobs", () => {
+    const stored = makeResult(
+      {},
+      [
+        { id: "p1", midi: 60, name: "C4", onset: 0.02, offset: 0.5 },
+        { id: "p2", midi: 65, name: "F4", onset: 0.6, offset: 1.0 },
+      ],
+    );
+    const serialized = JSON.stringify(stored);
+    // No embedded media of any kind.
+    expect(/data:/.test(serialized)).toBe(false);
+    expect(serialized).not.toContain("base64");
+    expect(serialized).not.toContain("note_on");
+    expect(serialized).not.toContain("microphone recording");
+    // Raw note streams are summarised, never stored verbatim.
+    expect(serialized).not.toContain("performedNotes");
+    expect(serialized).not.toContain("expectedNotes");
+    // Only derived, rounded summary fields are persisted.
+    expect(Object.keys(stored).sort()).toEqual([
+      "correctNotes",
+      "counts",
+      "createdAt",
+      "duration",
+      "focus",
+      "handMode",
+      "id",
+      "input",
+      "lessonId",
+      "lessonTitle",
+      "overall",
+      "pitch",
+      "preset",
+      "problems",
+      "timing",
+      "version",
+    ]);
+  });
+
+  it("stores only the input mode, never the captured media, for microphone sessions", () => {
+    const stored = makeResult({ input: "microphone" });
+    expect(stored.input).toBe("microphone");
+    const serialized = JSON.stringify(stored);
+    expect(/data:/.test(serialized)).toBe(false);
+    expect(serialized).not.toContain("audio");
+  });
+});
+
 describe("readResults / validateResultsArray", () => {
   it("returns an empty list for null storage or an empty store", () => {
     expect(readResults(null)).toEqual([]);

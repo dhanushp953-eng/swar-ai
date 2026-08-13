@@ -14,10 +14,15 @@ _PREFLIGHT_HEADERS = {"access-control-request-method"}
 
 
 def _is_lan_dev_origin(origin: str) -> bool:
-    """True for http(s) origins on a non-loopback host using a dev frontend port.
+    """True for http(s) origins on a private (LAN) host using a dev frontend port.
 
     This lets a phone on the LAN reach the API (e.g. Origin
     http://192.168.29.53:3001) without hard-coding the dev machine's IP.
+
+    Reflection is restricted to literal private/link-local addresses only. Public
+    or non-IP (hostname-based) origins are never reflected, so a production
+    deployment reached through a public hostname never inherits an arbitrary LAN
+    allow-list. Use CORS_ORIGINS for explicit production origins.
     """
     parsed = urlparse(origin)
     if parsed.scheme not in {"http", "https"}:
@@ -30,10 +35,13 @@ def _is_lan_dev_origin(origin: str) -> bool:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        pass
-    else:
-        if address.is_loopback:
-            return False
+        # Hostname-based origins are not reflected; require a literal IP so the
+        # check cannot be defeated via DNS rebinding.
+        return False
+    if address.is_loopback:
+        return False
+    if not address.is_private:
+        return False
     effective_port = parsed.port or (443 if parsed.scheme == "https" else 80)
     if str(effective_port) not in _DEV_PORTS:
         return False

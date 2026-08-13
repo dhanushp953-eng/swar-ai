@@ -12,6 +12,7 @@ from app.core.logging import configure_logging
 from app.core.rate_limit import RateLimiter
 from app.middleware.cors import LanCorsMiddleware
 from app.middleware.safety import SafetyMiddleware
+from app.middleware.security import SecurityHeadersMiddleware
 from app.schemas.ai import AIGenerateRequest, AIGenerateResponse, AIProviderStatusResponse
 from app.schemas.analysis import ErrorResponse, HealthResponse, JobResponse
 from app.schemas.tutor import TutorAdviceRequest, TutorAdviceResponse
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
         allow_headers=["Content-Type"],
         reflect_lan=active_settings.cors_reflect_lan,
     )
+    app.add_middleware(SecurityHeadersMiddleware)
 
     @app.exception_handler(AnalysisError)
     async def analysis_error_handler(request: Request, error: AnalysisError) -> JSONResponse:

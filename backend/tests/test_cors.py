@@ -44,3 +44,33 @@ def test_reflect_can_be_disabled():
     with TestClient(create_app(Settings(cors_reflect_lan=False))) as client:
         response = client.get("/health", headers={"Origin": LAN_ORIGIN})
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_private_ip_lan_origin_is_still_reflected():
+    with TestClient(create_app(Settings(cors_reflect_lan=True))) as client:
+        response = client.get("/health", headers={"Origin": "http://192.168.0.5:3001"})
+    assert response.headers.get("access-control-allow-origin") == "http://192.168.0.5:3001"
+
+
+def test_public_ip_origin_is_not_reflected():
+    # A public/global origin must never be reflected, even with reflection on.
+    with TestClient(create_app(Settings(cors_reflect_lan=True))) as client:
+        response = client.get("/health", headers={"Origin": "http://8.8.8.8:3001"})
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_non_ip_hostname_origin_is_not_reflected():
+    # Hostname-based origins are not reflected (no DNS resolution) so reflection
+    # cannot be defeated via DNS rebinding; use a literal private IP or CORS_ORIGINS.
+    with TestClient(create_app(Settings(cors_reflect_lan=True))) as client:
+        response = client.get("/health", headers={"Origin": "http://dev-machine.lan:3001"})
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_production_style_explicit_origins_only():
+    # With reflection disabled (production posture), only the explicit origin is allowed.
+    with TestClient(create_app(Settings(cors_reflect_lan=False, cors_origins="https://app.example.com"))) as client:
+        allowed = client.get("/health", headers={"Origin": "https://app.example.com"})
+        reflected_lan = client.get("/health", headers={"Origin": "http://192.168.0.5:3001"})
+    assert allowed.headers.get("access-control-allow-origin") == "https://app.example.com"
+    assert "access-control-allow-origin" not in reflected_lan.headers
