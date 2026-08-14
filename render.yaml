@@ -12,6 +12,7 @@
 #   - GEMINI_API_KEY / GROQ_API_KEY: only if you want live AI providers,
 #     otherwise the backend safely falls back to the mock tutor.
 services:
+  # 1. FastAPI Backend (Audio Analysis & AI Tutor API)
   - type: web
     name: swarai-audio-analysis
     runtime: python
@@ -35,3 +36,17 @@ services:
         value: "true"
       - key: BASIC_PITCH_ENABLED
         value: "false"
+
+  # 2. Next.js Frontend (Visual Piano & Tutor UI)
+  - type: web
+    name: swarai-frontend
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_AUDIO_API_URL
+        sync: false
