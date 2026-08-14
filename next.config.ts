@@ -1,5 +1,27 @@
 import type { NextConfig } from "next";
 
+/**
+ * Build-time origins the browser is allowed to call (CSP connect-src). These
+ * come from the deployed backend URLs (Render HTTPS) and fall back to the
+ * local dev backend so `next dev` keeps working without configuration.
+ */
+function backendConnectOrigins(): string[] {
+  const candidates = [process.env.NEXT_PUBLIC_AUDIO_API_URL, process.env.NEXT_PUBLIC_TUTOR_API_URL]
+    .map((value) => (value ?? "").trim())
+    .filter(Boolean);
+  const origins = new Set<string>();
+  for (const candidate of candidates) {
+    try {
+      const origin = new URL(candidate).origin;
+      if (origin && origin !== "null") origins.add(origin);
+    } catch {
+      // Ignore malformed URLs; they are ignored rather than breaking the build.
+    }
+  }
+  origins.add("http://localhost:8000");
+  return [...origins];
+}
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -15,7 +37,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",
-      "connect-src 'self'",
+      `connect-src 'self' ${backendConnectOrigins().join(" ")}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

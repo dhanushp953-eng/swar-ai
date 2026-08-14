@@ -234,7 +234,7 @@ function isTutorResponse(value: unknown): value is TutorAdviceResponse {
 }
 
 export function getTutorApiUrl(): string {
-  return resolveServiceBaseUrl(process.env.NEXT_PUBLIC_AUDIO_API_URL);
+  return resolveServiceBaseUrl(process.env.NEXT_PUBLIC_TUTOR_API_URL ?? process.env.NEXT_PUBLIC_AUDIO_API_URL);
 }
 
 function getErrorPayload(payload: unknown): { code: string; message: string } {

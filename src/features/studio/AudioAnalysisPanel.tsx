@@ -13,6 +13,7 @@ import {
   SUPPORTED_AUDIO_LABEL,
   uploadAudio,
   validateAudioFile,
+  waitForBackendReady,
   type MelodyNoteEvent,
 } from "@/lib/audio-api";
 
@@ -57,6 +58,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
   const [authorized, setAuthorized] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<UploadStatus>("ready");
+  const [starting, setStarting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [job, setJob] = useState<AnalysisJob | null>(null);
   const [noteEvents, setNoteEvents] = useState<MelodyNoteEvent[]>([]);
@@ -107,8 +109,12 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     setJob(null);
     setNoteEvents([]);
     setProgress(0);
-    setStatus("uploading");
+    setStarting(true);
     try {
+      await waitForBackendReady(controller.signal);
+      if (!mountedRef.current) return;
+      setStarting(false);
+      setStatus("uploading");
       const initialJob = await uploadAudio(file, controller.signal, (nextProgress) => {
         if (mountedRef.current) setProgress(nextProgress);
       });
@@ -117,8 +123,11 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
         await pollAnalysisJob(initialJob.job_id, controller.signal, applyJob);
       }
     } catch (requestError) {
+      setStarting(false);
       if (!mountedRef.current) return;
-      if (requestError instanceof AudioApiError && requestError.cancelled) {
+      const aborted = requestError instanceof AudioApiError && requestError.cancelled;
+      const abortedBySignal = requestError instanceof DOMException && requestError.name === "AbortError";
+      if (aborted || abortedBySignal) {
         setStatus("cancelled");
       } else if (requestError instanceof AudioApiError) {
         setError(requestError.message);
@@ -156,7 +165,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     void beginUpload();
   };
 
-  const isBusy = status === "uploading" || status === "validating" || status === "processing";
+  const isBusy = status === "uploading" || status === "validating" || status === "processing" || starting;
   const canUpload = Boolean(file && authorized && !isBusy);
   const fileFormat = file ? (file.type || file.name.split(".").pop()?.toUpperCase() || "Unknown") : "";
 
@@ -223,6 +232,7 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     </div>
 
     <div className="audio-status-region" aria-live="polite">
+      {starting && <p className="audio-starting" role="status"><LoaderCircle className="audio-spin" size={14} /> Starting analysis service…</p>}
       <div className="audio-status-header"><span className={`audio-status-dot status-${status}`} /> <strong>{isBusy ? BUSY_LABEL : STATUS_LABELS[status]}</strong><span>{status === "uploading" ? `${progress}% uploaded` : status === "completed" ? "Your local analysis is ready" : status === "failed" ? "Nothing was added to your lesson" : status === "cancelled" ? "Upload stopped" : ""}</span></div>
       <div className="audio-status-rail" aria-label={`Analysis status: ${STATUS_LABELS[status]}`}>
         {STATUS_STAGES.map((stage, index) => <div key={stage} className={`audio-status-step ${status === stage ? "is-current" : ""} ${statusIndex(status) > index ? "is-done" : ""}`}><span>{statusIndex(status) > index ? <Check size={11} /> : index + 1}</span>{STATUS_LABELS[stage]}</div>)}

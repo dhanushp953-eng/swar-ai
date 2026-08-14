@@ -260,3 +260,89 @@ export async function pollAnalysisJob(jobId: string, signal: AbortSignal, onUpda
   }
   return job;
 }
+
+/**
+ * Bounded wait for the backend to be reachable and past its warm-up phase
+ * before an upload. Absorbs PaaS cold starts (e.g. Render Free spins down when
+ * idle, so the first request can take tens of seconds while the service boots
+ * and primes librosa). The wait is capped by `maxWaitMs` so the UI never
+ * hangs, and the caller cancels it via the provided signal.
+ */
+export const BACKEND_START_POLL_MS = 3000;
+export const BACKEND_START_MAX_WAIT_MS = 180_000;
+
+/**
+ * Deployment-only ceiling for the cold-start wait. Render (and similar PaaS)
+ * Free tiers can take well over a minute to spin a spun-down service back up,
+ * so the default is generous. It can be tuned per deployment via
+ * NEXT_PUBLIC_BACKEND_START_MAX_WAIT_MS (milliseconds) without a code change.
+ */
+function resolveBackendStartMaxWaitMs(): number {
+  const configured = Number(process.env.NEXT_PUBLIC_BACKEND_START_MAX_WAIT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : BACKEND_START_MAX_WAIT_MS;
+}
+
+export type BackendReadiness = "ready" | "warming" | "failed" | "unavailable";
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = globalThis.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      globalThis.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function fetchBackendReadiness(signal: AbortSignal): Promise<BackendReadiness> {
+  try {
+    const response = await fetch(`${getAudioApiUrl()}/health`, {
+      method: "GET",
+      signal,
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) return "unavailable";
+    const payload = (await response.json().catch(() => null)) as { warmup?: string } | null;
+    const warmup = payload?.warmup;
+    if (warmup === "warming") return "warming";
+    if (warmup === "failed") return "failed";
+    return "ready";
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return "unavailable";
+  }
+}
+
+export async function waitForBackendReady(
+  signal: AbortSignal,
+  options: { pollMs?: number; maxWaitMs?: number } = {},
+): Promise<void> {
+  const pollMs = options.pollMs ?? BACKEND_START_POLL_MS;
+  const maxWaitMs = options.maxWaitMs ?? resolveBackendStartMaxWaitMs();
+  const deadline = Date.now() + maxWaitMs;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    let readiness: BackendReadiness;
+    try {
+      readiness = await fetchBackendReadiness(signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      readiness = "unavailable";
+    }
+    if (readiness === "ready" || readiness === "failed") return;
+    if (Date.now() >= deadline) {
+      throw new AudioApiError("The analysis service is still starting. Try again in a moment.", { code: "backend_start_timeout" });
+    }
+    await abortableDelay(pollMs, signal);
+  }
+}

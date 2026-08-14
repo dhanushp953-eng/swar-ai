@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AudioApiError,
   type AnalysisJob,
@@ -8,6 +8,7 @@ import {
   mapJobStatus,
   uploadAudio,
   validateAudioFile,
+  waitForBackendReady,
 } from "./audio-api";
 
 const validJob: AnalysisJob = {
@@ -56,6 +57,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.NEXT_PUBLIC_AUDIO_MAX_UPLOAD_BYTES;
   delete process.env.NEXT_PUBLIC_AUDIO_API_URL;
+  delete process.env.NEXT_PUBLIC_BACKEND_START_MAX_WAIT_MS;
 });
 
 describe("audio API validation", () => {
@@ -160,5 +162,65 @@ describe("audio upload transport", () => {
 describe("analysis timeout budget", () => {
   it("allows the full analysis round-trip up to 120 seconds", () => {
     expect(ANALYSIS_TIMEOUT_MS).toBe(120_000);
+  });
+});
+
+describe("backend cold-start readiness", () => {
+  function jsonResponse(body: unknown, ok = true) {
+    return Promise.resolve({ ok, status: ok ? 200 : 500, json: () => Promise.resolve(body) });
+  }
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_AUDIO_API_URL = "http://localhost:8000";
+  });
+
+  it("resolves immediately when the backend is ready", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ warmup: "ready", status: "ok" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 10, maxWaitMs: 1000 })).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a failed warm-up as ready (JIT fallback still works)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ warmup: "failed" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 10, maxWaitMs: 1000 })).resolves.toBeUndefined();
+  });
+
+  it("polls while warming and resolves once ready", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn().mockImplementation(() => {
+      calls += 1;
+      return jsonResponse({ warmup: calls >= 3 ? "ready" : "warming" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 5, maxWaitMs: 1000 })).resolves.toBeUndefined();
+    expect(calls).toBeGreaterThanOrEqual(3);
+  });
+
+  it("rejects with a safe timeout error if the service never starts", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ warmup: "warming" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 5, maxWaitMs: 50 })).rejects.toMatchObject({
+      code: "backend_start_timeout",
+    });
+  });
+
+  it("honors NEXT_PUBLIC_BACKEND_START_MAX_WAIT_MS when set", async () => {
+    process.env.NEXT_PUBLIC_BACKEND_START_MAX_WAIT_MS = "60";
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ warmup: "warming" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 5 })).rejects.toMatchObject({
+      code: "backend_start_timeout",
+    });
+  });
+
+  it("aborts without hanging when the caller cancels", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ warmup: "warming" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const pending = waitForBackendReady(controller.signal, { pollMs: 20, maxWaitMs: 5000 });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 });
