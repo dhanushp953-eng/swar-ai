@@ -2,6 +2,20 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+except ImportError:
+    pass
+
+
+def _default_temp_root() -> Path:
+    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return Path("/tmp/swar_ai_runtime")
+    return Path("backend/.runtime")
+
 
 def _env_bool(value: str | None, default: bool) -> bool:
     if value is None:
@@ -49,7 +63,7 @@ class Settings:
     app_name: str = "SwarAI Audio Analysis"
     analysis_version: str = "3.0.0"
     melody_analysis_version: str = "3.1.0"
-    max_upload_bytes: int = 25 * 1024 * 1024
+    max_upload_bytes: int = 4_000_000
     max_duration_seconds: float = 300.0
     analysis_sample_rate: int = 22050
     melody_min_frequency: float = 65.406391
@@ -60,7 +74,7 @@ class Settings:
     melody_min_rms: float = 0.005
     melody_hop_length: int = 256
     melody_frame_length: int = 2048
-    temp_root: Path = Path("backend/.runtime")
+    temp_root: Path = field(default_factory=_default_temp_root)
     ffmpeg_binary: str = "ffmpeg"
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
     cors_reflect_lan: bool = True
@@ -101,7 +115,7 @@ class Settings:
             melody_min_rms=max(1e-7, float(os.getenv("MELODY_MIN_RMS", cls.melody_min_rms))),
             melody_hop_length=max(64, int(os.getenv("MELODY_HOP_LENGTH", cls.melody_hop_length))),
             melody_frame_length=max(512, int(os.getenv("MELODY_FRAME_LENGTH", cls.melody_frame_length))),
-            temp_root=Path(os.getenv("TEMP_ROOT", str(cls.temp_root))),
+            temp_root=Path(os.getenv("TEMP_ROOT", str(_default_temp_root()))),
             ffmpeg_binary=os.getenv("FFMPEG_BINARY", cls.ffmpeg_binary),
             cors_origins=os.getenv("CORS_ORIGINS", cls.cors_origins),
             cors_reflect_lan=_env_bool(os.getenv("CORS_REFLECT_LAN"), cls.cors_reflect_lan),

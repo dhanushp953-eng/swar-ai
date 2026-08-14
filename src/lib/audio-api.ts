@@ -2,7 +2,7 @@ import { resolveServiceBaseUrl } from "./service-url";
 
 export const SUPPORTED_AUDIO_EXTENSIONS = ["wav", "mp3", "m4a", "ogg"] as const;
 export const SUPPORTED_AUDIO_LABEL = "WAV, MP3, M4A or OGG";
-export const DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+export const DEFAULT_MAX_UPLOAD_BYTES = 4_000_000;
 /**
  * Bounds the entire analysis round-trip (file upload + backend processing + any
  * status polling) in the browser. The backend analyses audio synchronously

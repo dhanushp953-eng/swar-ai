@@ -52,6 +52,14 @@ describe("resolveServiceBaseUrl", () => {
     });
   });
 
+  it("returns same-origin empty base URL on production domains when unconfigured", () => {
+    withBrowserHost("swar-ai-psi.vercel.app", () => {
+      expect(resolveServiceBaseUrl(undefined)).toBe("");
+      expect(resolveServiceBaseUrl("")).toBe("");
+      expect(resolveServiceBaseUrl("/")).toBe("");
+    });
+  });
+
   it("strips trailing slashes", () => {
     expect(stripTrailingSlash("http://localhost:8000/")).toBe("http://localhost:8000");
     withBrowserHost("192.168.29.53", () => {

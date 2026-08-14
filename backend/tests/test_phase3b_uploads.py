@@ -41,8 +41,11 @@ def post_wav(client: TestClient, data: bytes | None = None, filename: str = "ton
 def test_health_is_preserved(app_factory):
     with TestClient(app_factory()) as client:
         response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+        api_health = client.get("/api/health")
+        assert api_health.status_code == 200
+        assert api_health.json()["status"] == "ok"
 
 
 def test_valid_wav_is_validated_and_cleaned_up(app_factory, tmp_path: Path):

@@ -166,6 +166,7 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
         return JSONResponse(status_code=422, content={"error": {"code": "invalid_request", "message": "The request could not be validated.", "details": {"errors": details}}})
 
     @app.get("/health", response_model=HealthResponse, tags=["system"])
+    @app.get("/api/health", response_model=HealthResponse, tags=["system"])
     async def health() -> HealthResponse:
         return HealthResponse(
             status="ok",

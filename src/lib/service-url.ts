@@ -12,7 +12,27 @@ export function stripTrailingSlash(value: string): string {
  * window.location.hostname, keeping the configured scheme and port.
  */
 export function resolveServiceBaseUrl(configured: string | undefined): string {
-  const base = (configured ?? "").trim() || "http://localhost:8000";
+  const raw = (configured ?? "").trim();
+  if (raw === "/" || raw === "") {
+    if (typeof window !== "undefined" && window.location && window.location.hostname) {
+      const browserHost = window.location.hostname;
+      const isLoopback = browserHost === "localhost" || browserHost === "127.0.0.1" || browserHost === "";
+      const isLan =
+        browserHost.startsWith("192.168.") ||
+        browserHost.startsWith("10.") ||
+        browserHost.startsWith("172.16.") ||
+        browserHost.startsWith("172.17.") ||
+        browserHost.startsWith("172.18.") ||
+        browserHost.startsWith("172.19.") ||
+        browserHost.startsWith("172.2") ||
+        browserHost.startsWith("172.3");
+      if (!isLoopback && !isLan) {
+        return "";
+      }
+    }
+    if (raw === "/") return "";
+  }
+  const base = raw || "http://localhost:8000";
   if (typeof window === "undefined" || !window.location) {
     return stripTrailingSlash(base);
   }
