@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+.pytest_cache/
+**/.pytest_cache/
 
 # next.js
 /.next/
@@ -43,6 +45,8 @@ next-env.d.ts
 
 # Python backend
 backend/.venv/
+backend/.runtime/
+**/.runtime/
 **/__pycache__/
 *.py[cod]
 backend/tmp/
