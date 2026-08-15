@@ -60,6 +60,18 @@ export class PianoVoiceController {
     this.synth = synth;
   }
 
+  /** Replace the engine after the audio graph went stale (recovery). Unlike
+   *  setSynth, this keeps the notes the caller has already pressed so the
+   *  pending attack replays on the fresh engine. Outgoing voices are released
+   *  on the old engine first so nothing rings after it is disposed. */
+  rebuildEngine(synth: PianoVoiceSynthLike): void {
+    for (const note of this.attacked) this.synth.triggerRelease(note);
+    this.attacked.clear();
+    this.sustained.clear();
+    this.synth = synth;
+    this.sync();
+  }
+
   /**
    * Register a press synchronously — before any `await` on the audio context —
    * so a release that arrives during that wait still cancels the late attack.

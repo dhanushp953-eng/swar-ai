@@ -74,8 +74,29 @@ export class ToneAudioUnlock {
   private ensureListener(raw: AudioContext): void {
     this.ctx = raw;
     if (!this.listener) {
-      this.listener = () => this.sync();
+      this.listener = () => this.onStateChange();
       raw.addEventListener("statechange", this.listener);
+    }
+  }
+
+  /** Called whenever the underlying AudioContext changes state (e.g. mobile OS
+   *  suspends audio after ~1 min of inactivity or on screen-lock). */
+  private onStateChange(): void {
+    const raw = this.ctx ?? this.getRawContext();
+    if (!raw) {
+      this.setState("unsupported");
+      return;
+    }
+    this.ctx = raw;
+    const current: AudioContextState = raw.state;
+    // Reflect the real OS state immediately (including "interrupted") so the UI
+    // can surface it before any recovery attempt. Then auto-resume so the next
+    // key-press works without requiring a separate user tap to re-unlock.
+    this.setState(
+      current === "running" ? "running" : current === "interrupted" ? "interrupted" : "suspended",
+    );
+    if (current !== "running") {
+      void this.unlock();
     }
   }
 
@@ -105,7 +126,12 @@ export class ToneAudioUnlock {
   }
 
   /** Resume the AudioContext directly from a user gesture. Returns the state
-   *  after the attempt so callers can tell the user when audio stays blocked. */
+   *  after the attempt so callers can tell the user when audio stays blocked.
+   *
+   *  Key change vs the previous implementation: `raw.resume()` is now awaited
+   *  before `Tone.start()`.  Mobile browsers (especially iOS Safari) need the
+   *  OS audio route to be fully restored before Tone's internal graph can
+   *  produce audible output.  Fire-and-forget was the silent failure mode. */
   async unlock(): Promise<AudioUnlockState> {
     try {
       const raw = this.getRawContext();
@@ -114,17 +140,18 @@ export class ToneAudioUnlock {
         return "unsupported";
       }
       this.ensureListener(raw);
-      // Resume synchronously inside the current user gesture (before any await)
-      // so the browser's user-activation requirement is satisfied. This is the
-      // critical step for mobile browsers that otherwise keep the context suspended.
       if (raw.state !== "running") {
         try {
-          raw.resume();
+          // Await resume() so the OS audio route is live before Tone.start().
+          // This is the critical fix for the "silent after 1 min" mobile bug.
+          await raw.resume();
         } catch {
-          // ignore — retried below and on the next gesture
+          // ignore — Tone.start() below is a second attempt
         }
       }
       await Tone.start();
+      // Second safety net: Tone.start() may resolve before the context fully
+      // transitions to "running" on some Android WebViews.
       if (raw.state !== "running") {
         try {
           await raw.resume();
@@ -170,14 +197,22 @@ export function useToneAudioUnlock(): {
     const onFirstGesture = () => {
       void unlocker.unlock();
     };
+    // Re-unlock when the page becomes visible again (e.g. user returns from
+    // lock screen or another tab). iOS Safari suspends the AudioContext
+    // automatically during hide and does NOT always auto-resume on show.
+    const onVisibilityChange = () => {
+      if (!document.hidden) void unlocker.unlock();
+    };
     const options = { capture: true } as AddEventListenerOptions;
     document.addEventListener("pointerdown", onFirstGesture, options);
     document.addEventListener("touchstart", onFirstGesture, options);
     document.addEventListener("click", onFirstGesture, options);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       document.removeEventListener("pointerdown", onFirstGesture, options);
       document.removeEventListener("touchstart", onFirstGesture, options);
       document.removeEventListener("click", onFirstGesture, options);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       unlocker.dispose();
     };
   }, [getUnlocker]);
