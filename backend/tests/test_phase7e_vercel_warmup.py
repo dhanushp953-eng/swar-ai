@@ -3,6 +3,8 @@ import io
 import logging
 import math
 import struct
+import threading
+import time
 import wave
 from unittest.mock import MagicMock
 
@@ -71,15 +73,38 @@ def test_vercel_disables_background_warmup(tmp_path: object, monkeypatch: pytest
 
 def test_non_vercel_still_runs_warmup(tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression guard: only Vercel disables the warm-up. Everywhere else the
-    # single background warm-up task is still scheduled.
+    # single background warm-up task is still scheduled and completes to "ready".
     monkeypatch.delenv("VERCEL", raising=False)
     monkeypatch.delenv("APP_SKIP_WARMUP", raising=False)
-    monkeypatch.setattr("app.main._prime_librosa", lambda: None)
+
+    # Block the warm-up's librosa priming on a threading.Event so the test can
+    # deterministically observe the intermediate "warming" status before it
+    # transitions to "ready". _prime_librosa runs inside asyncio.to_thread, so a
+    # threading.Event (not asyncio.Event) is the correct cross-thread primitive;
+    # this keeps production warm-up behavior untouched.
+    release_warmup = threading.Event()
+
+    def _blocking_prime() -> None:
+        # Holding here keeps warmup_status == "warming" until the test releases
+        # the event. The timeout is a safety net so the test can never hang.
+        release_warmup.wait(timeout=10)
+
+    monkeypatch.setattr("app.main._prime_librosa", _blocking_prime)
     app = create_app(Settings(temp_root=tmp_path))
     with TestClient(app) as client:
         del client
         assert isinstance(app.state.warmup_task, asyncio.Task)
+        # The warm-up is still blocked priming librosa, so it must report warming.
         assert app.state.warmup_status == "warming"
+        # Release the blocked prime; the background task should finish and the
+        # warm-up should transition to ready.
+        release_warmup.set()
+        for _ in range(500):
+            if app.state.warmup_status == "ready":
+                break
+            time.sleep(0.01)
+        assert app.state.warmup_status == "ready"
+        assert app.state.warmup_task.done()
 
 
 def test_analyze_logs_request_id_and_stage(tmp_path: object, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
