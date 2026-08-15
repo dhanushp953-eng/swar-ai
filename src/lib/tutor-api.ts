@@ -128,9 +128,27 @@ export function sanitizeTutorQuestion(value: string): { value: string | null; er
   return { value: cleaned, error: null };
 }
 
+// Input-source / payload labels that the backend tutor guard refuses. The
+// frontend must never forward these in `lesson_name`, otherwise a perfectly
+// safe practice attempt (e.g. a microphone take titled "Voice Memo.m4a") gets
+// rejected as unsupported/unsafe. Matched on word boundaries so innocent
+// titles like "Profile scales" are not caught.
+const LESSON_NAME_INPUT_SOURCE =
+  /\b(microphone|mic|mike|recorded|recording|audio|upload|file|attachment|blob|midi|import|source|raw)\b/i;
+// Lesson titles are sometimes derived from the original audio/source file name.
+const LESSON_NAME_FILE_EXT = /\.(wav|mp3|m4a|ogg|mid|midi|pdf|docx?|xlsx?|aac|flac|wma)\b/i;
+
 function safeLessonName(title: string): string {
   const cleaned = title.trim().replace(/\s+/g, " ");
-  if (!cleaned || cleaned.length > 120 || EMAIL_PATTERN.test(cleaned) || PHONE_PATTERN.test(cleaned) || UNSAFE_QUESTION_MARKERS.some((marker) => cleaned.toLowerCase().includes(marker))) return "Current lesson";
+  if (
+    !cleaned ||
+    cleaned.length > 120 ||
+    EMAIL_PATTERN.test(cleaned) ||
+    PHONE_PATTERN.test(cleaned) ||
+    UNSAFE_QUESTION_MARKERS.some((marker) => cleaned.toLowerCase().includes(marker)) ||
+    LESSON_NAME_INPUT_SOURCE.test(cleaned) ||
+    LESSON_NAME_FILE_EXT.test(cleaned)
+  ) return "Current lesson";
   return cleaned;
 }
 

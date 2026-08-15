@@ -88,6 +88,23 @@ describe("tutor request sanitization", () => {
     expect(sanitizeTutorQuestion("Please send my microphone recording and the song lyrics").error).toContain("media");
     expect(sanitizeTutorQuestion("  Explain timing   ").value).toBe("Explain timing");
   });
+
+  it("neutralizes input-source and file-derived lesson titles instead of forwarding them", () => {
+    const snapshot = createTutorPracticeSnapshot(result, "full");
+    const mic = buildTutorAdviceRequest({ ...demoExercises[0], title: "Microphone recording" }, snapshot, "");
+    const audio = buildTutorAdviceRequest({ ...demoExercises[0], title: "Recorded audio take 3" }, snapshot, "");
+    const file = buildTutorAdviceRequest({ ...demoExercises[0], title: "Voice Memo.m4a" }, snapshot, "");
+    const midiFile = buildTutorAdviceRequest({ ...demoExercises[0], title: "Piano take.mid" }, snapshot, "");
+    const upload = buildTutorAdviceRequest({ ...demoExercises[0], title: "Uploaded file from phone" }, snapshot, "");
+    expect(mic.request?.lesson_name).toBe("Current lesson");
+    expect(audio.request?.lesson_name).toBe("Current lesson");
+    expect(file.request?.lesson_name).toBe("Current lesson");
+    expect(midiFile.request?.lesson_name).toBe("Current lesson");
+    expect(upload.request?.lesson_name).toBe("Current lesson");
+    // Innocent titles (including words that merely contain a forbidden term) are kept.
+    expect(buildTutorAdviceRequest({ ...demoExercises[0], title: "Profile scales" }, snapshot, "").request?.lesson_name).toBe("Profile scales");
+    expect(buildTutorAdviceRequest({ ...demoExercises[0], title: "Warm-up in C major" }, snapshot, "").request?.lesson_name).toBe("Warm-up in C major");
+  });
 });
 
 describe("tutor API transport", () => {
