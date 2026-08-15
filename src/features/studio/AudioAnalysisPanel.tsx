@@ -145,7 +145,10 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
       if (aborted || abortedBySignal) {
         setStatus("cancelled");
       } else if (requestError instanceof AudioApiError) {
-        setError(requestError.message);
+        const ref = requestError.requestId
+          ? ` (ref ${requestError.requestId}${requestError.vercelId ? ` · ${requestError.vercelId}` : ""})`
+          : "";
+        setError(requestError.message + ref);
         setStatus("failed");
       } else {
         setError("The analysis service could not be reached. Check that FastAPI is running and try again.");

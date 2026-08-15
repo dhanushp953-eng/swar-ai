@@ -60,14 +60,54 @@ export class AudioApiError extends Error {
   readonly code: string;
   readonly statusCode: number | null;
   readonly cancelled: boolean;
+  readonly requestId?: string;
+  readonly vercelId?: string | null;
+  readonly backendCode?: string;
+  readonly backendMessage?: string;
+  /** True when the browser reported XHR status 0 (no response / connection reset). */
+  readonly statusZero?: boolean;
 
-  constructor(message: string, options: { code?: string; statusCode?: number | null; cancelled?: boolean } = {}) {
+  constructor(
+    message: string,
+    options: {
+      code?: string;
+      statusCode?: number | null;
+      cancelled?: boolean;
+      requestId?: string;
+      vercelId?: string | null;
+      backendCode?: string;
+      backendMessage?: string;
+      statusZero?: boolean;
+    } = {},
+  ) {
     super(message);
     this.name = "AudioApiError";
     this.code = options.code ?? "audio_api_error";
     this.statusCode = options.statusCode ?? null;
     this.cancelled = options.cancelled ?? false;
+    this.requestId = options.requestId;
+    this.vercelId = options.vercelId ?? null;
+    this.backendCode = options.backendCode;
+    this.backendMessage = options.backendMessage;
+    this.statusZero = options.statusZero ?? false;
   }
+}
+
+/**
+ * Generates a safe, non-sensitive correlation id for a request. It is never
+ * reflected back into the DOM — only logged and echoed in a response header —
+ * so there is no injection risk. Falls back to a random string when
+ * `crypto.randomUUID` is unavailable.
+ */
+function safeRequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // Fall through to the random fallback below.
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function getAudioApiUrl(): string {
@@ -225,6 +265,7 @@ function validateResponse(payload: unknown): AnalysisJob {
 function requestJson(path: string, signal: AbortSignal): Promise<AnalysisJob> {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
+    const requestId = safeRequestId();
     let timedOut = false;
     const timeout = globalThis.setTimeout(() => {
       timedOut = true;
@@ -232,17 +273,46 @@ function requestJson(path: string, signal: AbortSignal): Promise<AnalysisJob> {
     }, ANALYSIS_TIMEOUT_MS);
     const abort = () => controller.abort();
     signal.addEventListener("abort", abort, { once: true });
-    fetch(`${getAudioApiUrl()}${path}`, { signal: controller.signal, headers: { Accept: "application/json" } })
+    fetch(`${getAudioApiUrl()}${path}`, {
+      signal: controller.signal,
+      headers: { Accept: "application/json", "X-Request-ID": requestId },
+    })
       .then(async (response) => {
+        const vercelId = response.headers.get("x-vercel-id");
         const payload = (await response.json().catch(() => null)) as unknown;
-        if (!response.ok) throw new AudioApiError(getErrorMessage(payload, "The analysis request failed."), { statusCode: response.status, code: isRecord(payload) && isRecord(payload.error) && typeof payload.error.code === "string" ? payload.error.code : "request_failed" });
+        if (!response.ok) {
+          const backendMessage = getErrorMessage(payload, "The analysis request failed.");
+          const backendCode =
+            isRecord(payload) && isRecord(payload.error) && typeof payload.error.code === "string"
+              ? payload.error.code
+              : "request_failed";
+          throw new AudioApiError(backendMessage, {
+            statusCode: response.status,
+            code: backendCode,
+            requestId,
+            vercelId,
+            backendCode,
+            backendMessage,
+          });
+        }
         resolve(validateResponse(payload));
       })
       .catch((error: unknown) => {
-        if (timedOut) reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "timeout" }));
-        else if (signal.aborted || controller.signal.aborted) reject(new AudioApiError("Analysis cancelled.", { code: "cancelled", cancelled: true }));
-        else if (error instanceof AudioApiError) reject(error);
-        else reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "network_error" }));
+        if (timedOut) {
+          reject(new AudioApiError("The analysis took too long and timed out. Please retry.", { code: "timeout", requestId }));
+        } else if (signal.aborted || controller.signal.aborted) {
+          reject(new AudioApiError("Analysis cancelled.", { code: "cancelled", cancelled: true, requestId }));
+        } else if (error instanceof AudioApiError) {
+          reject(error);
+        } else {
+          reject(
+            new AudioApiError("Couldn't reach the analysis server. Check your connection and retry.", {
+              code: "network_error",
+              requestId,
+              statusZero: true,
+            }),
+          );
+        }
       })
       .finally(() => {
         globalThis.clearTimeout(timeout);
@@ -254,6 +324,7 @@ function requestJson(path: string, signal: AbortSignal): Promise<AnalysisJob> {
 export function uploadAudio(file: File, signal: AbortSignal, onProgress: UploadProgressHandler): Promise<AnalysisJob> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const requestId = safeRequestId();
     let timedOut = false;
     const timeout = globalThis.setTimeout(() => {
       timedOut = true;
@@ -267,33 +338,70 @@ export function uploadAudio(file: File, signal: AbortSignal, onProgress: UploadP
     xhr.open("POST", `${getAudioApiUrl()}/api/analyze`);
     xhr.responseType = "text";
     xhr.timeout = ANALYSIS_TIMEOUT_MS;
+    try {
+      xhr.setRequestHeader("X-Request-ID", requestId);
+    } catch {
+      // Some environments forbid setting request headers; the backend still
+      // generates its own id when missing, so continue without it.
+    }
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
     };
     xhr.onload = () => {
+      const vercelId = xhr.getResponseHeader("x-vercel-id");
       const payload = xhr.response ? parseJson(xhr.response) : null;
       finish();
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new AudioApiError(getErrorMessage(payload, "The audio could not be analysed."), { statusCode: xhr.status, code: isRecord(payload) && isRecord(payload.error) && typeof payload.error.code === "string" ? payload.error.code : "upload_failed" }));
+        const backendMessage = getErrorMessage(payload, "The audio could not be analysed.");
+        const backendCode =
+          isRecord(payload) && isRecord(payload.error) && typeof payload.error.code === "string"
+            ? payload.error.code
+            : "upload_failed";
+        reject(
+          new AudioApiError(backendMessage, {
+            statusCode: xhr.status,
+            code: backendCode,
+            requestId,
+            vercelId,
+            backendCode,
+            backendMessage,
+          }),
+        );
         return;
       }
       try {
         resolve(validateResponse(payload));
-      } catch (error) {
-        reject(error);
+      } catch {
+        reject(
+          new AudioApiError("The analysis response was invalid.", {
+            code: "invalid_response",
+            requestId,
+            vercelId,
+          }),
+        );
       }
     };
     xhr.onerror = () => {
       finish();
-      reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "network_error" }));
+      reject(
+        new AudioApiError("Couldn't reach the analysis server. Check your connection and retry.", {
+          code: "network_error",
+          requestId,
+          statusZero: true,
+        }),
+      );
     };
     xhr.ontimeout = () => {
       finish();
-      reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "timeout" }));
+      reject(new AudioApiError("The analysis took too long and timed out. Please retry.", { code: "timeout", requestId }));
     };
     xhr.onabort = () => {
       finish();
-      reject(timedOut ? new AudioApiError("The upload timed out. Try again.", { code: "timeout" }) : new AudioApiError("Analysis cancelled.", { code: "cancelled", cancelled: true }));
+      reject(
+        timedOut
+          ? new AudioApiError("The upload timed out. Try again.", { code: "timeout", requestId })
+          : new AudioApiError("Analysis cancelled.", { code: "cancelled", cancelled: true, requestId }),
+      );
     };
     signal.addEventListener("abort", abort, { once: true });
     const formData = new FormData();

@@ -35,6 +35,8 @@ const validJob: AnalysisJob = {
 class FakeXmlHttpRequest {
   static responsePayload = JSON.stringify(validJob);
   static responseStatus = 201;
+  static responseHeaders: Record<string, string> = {};
+  static lastHeaders: Record<string, string> | null = null;
   upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
   response = FakeXmlHttpRequest.responsePayload;
   responseType = "";
@@ -44,7 +46,15 @@ class FakeXmlHttpRequest {
   ontimeout: (() => void) | null = null;
   onabort: (() => void) | null = null;
   body: FormData | null = null;
+  headers: Record<string, string> = {};
   open() {}
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value;
+    FakeXmlHttpRequest.lastHeaders = this.headers;
+  }
+  getResponseHeader(name: string): string | null {
+    return FakeXmlHttpRequest.responseHeaders[name.toLowerCase()] ?? null;
+  }
   send(body: FormData) {
     this.body = body;
     this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 } as ProgressEvent);
@@ -88,13 +98,23 @@ describe("audio API validation", () => {
 });
 
 describe("audio upload transport", () => {
-  it("sends multipart data, authorization, and upload progress", async () => {
+  afterEach(() => {
+    FakeXmlHttpRequest.responseStatus = 201;
+    FakeXmlHttpRequest.responsePayload = JSON.stringify(validJob);
+    FakeXmlHttpRequest.responseHeaders = {};
+    FakeXmlHttpRequest.lastHeaders = null;
+  });
+
+  it("sends multipart data, authorization, a generated X-Request-ID, and upload progress", async () => {
     vi.stubGlobal("XMLHttpRequest", FakeXmlHttpRequest);
     const progress: number[] = [];
     const controller = new AbortController();
     const result = await uploadAudio(new File([new Uint8Array([1])], "voice.wav"), controller.signal, (value) => progress.push(value));
     expect(result).toEqual(validJob);
     expect(progress).toEqual([50]);
+    const sent = FakeXmlHttpRequest.lastHeaders ?? {};
+    expect(typeof sent["X-Request-ID"]).toBe("string");
+    expect(sent["X-Request-ID"]!.length).toBeGreaterThan(0);
   });
 
   it("rejects cancellation without exposing a network error", async () => {
@@ -111,17 +131,38 @@ describe("audio upload transport", () => {
     expect(new AudioApiError("x").message).toBe("x");
   });
 
-  it("surfaces safe backend validation errors", async () => {
+  it("surfaces safe backend validation errors with status, code, message, and x-vercel-id", async () => {
     FakeXmlHttpRequest.responseStatus = 413;
     FakeXmlHttpRequest.responsePayload = JSON.stringify({ error: { code: "file_too_large", message: "The uploaded audio file exceeds the configured size limit." } });
+    FakeXmlHttpRequest.responseHeaders = { "x-vercel-id": "iad1::abc123" };
     vi.stubGlobal("XMLHttpRequest", FakeXmlHttpRequest);
     const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
-    await expect(request).rejects.toMatchObject({ code: "file_too_large", statusCode: 413 });
-    FakeXmlHttpRequest.responseStatus = 201;
-    FakeXmlHttpRequest.responsePayload = JSON.stringify(validJob);
+    await expect(request).rejects.toMatchObject({
+      code: "file_too_large",
+      statusCode: 413,
+      backendCode: "file_too_large",
+      backendMessage: "The uploaded audio file exceeds the configured size limit.",
+      vercelId: "iad1::abc123",
+    });
   });
 
-  it("turns transport failures into a safe network error", async () => {
+  it("captures the backend code, message, status, and x-vercel-id on an analysis failure", async () => {
+    FakeXmlHttpRequest.responseStatus = 422;
+    FakeXmlHttpRequest.responsePayload = JSON.stringify({ error: { code: "analysis_failed", message: "The audio could not be analyzed." } });
+    FakeXmlHttpRequest.responseHeaders = { "x-vercel-id": "iad1::fail-1" };
+    vi.stubGlobal("XMLHttpRequest", FakeXmlHttpRequest);
+    const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
+    await expect(request).rejects.toMatchObject({
+      code: "analysis_failed",
+      statusCode: 422,
+      backendCode: "analysis_failed",
+      backendMessage: "The audio could not be analyzed.",
+      vercelId: "iad1::fail-1",
+      statusZero: false,
+    });
+  });
+
+  it("turns transport failures into a network error distinct from a timeout", async () => {
     class NetworkXmlHttpRequest extends FakeXmlHttpRequest {
       send(body: FormData) {
         this.body = body;
@@ -130,7 +171,7 @@ describe("audio upload transport", () => {
     }
     vi.stubGlobal("XMLHttpRequest", NetworkXmlHttpRequest);
     const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
-    await expect(request).rejects.toMatchObject({ code: "network_error" });
+    await expect(request).rejects.toMatchObject({ code: "network_error", statusZero: true, message: "Couldn't reach the analysis server. Check your connection and retry." });
   });
 
   it("surfaces a timeout as a retryable timeout error, not a network error", async () => {
@@ -142,37 +183,23 @@ describe("audio upload transport", () => {
     }
     vi.stubGlobal("XMLHttpRequest", TimeoutXmlHttpRequest);
     const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
-    await expect(request).rejects.toMatchObject({ code: "timeout" });
-  });
-
-  it("reports the server timeout message when the upload times out", async () => {
-    class TimeoutXmlHttpRequest extends FakeXmlHttpRequest {
-      send(body: FormData) {
-        this.body = body;
-        this.ontimeout?.();
-      }
-    }
-    vi.stubGlobal("XMLHttpRequest", TimeoutXmlHttpRequest);
-    const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
     await expect(request).rejects.toMatchObject({
       code: "timeout",
-      message: "The analysis server timed out. Please retry once.",
+      message: "The analysis took too long and timed out. Please retry.",
     });
   });
 
-  it("reports the server timeout message on a transport failure", async () => {
-    class NetworkXmlHttpRequest extends FakeXmlHttpRequest {
+  it("marks XHR status 0 (connection reset) as a network error, never a timeout", async () => {
+    class ConnectionResetXmlHttpRequest extends FakeXmlHttpRequest {
       send(body: FormData) {
         this.body = body;
+        this.status = 0;
         this.onerror?.();
       }
     }
-    vi.stubGlobal("XMLHttpRequest", NetworkXmlHttpRequest);
+    vi.stubGlobal("XMLHttpRequest", ConnectionResetXmlHttpRequest);
     const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
-    await expect(request).rejects.toMatchObject({
-      code: "network_error",
-      message: "The analysis server timed out. Please retry once.",
-    });
+    await expect(request).rejects.toMatchObject({ code: "network_error", statusZero: true });
   });
 
   it("does not auto-retry after a failure (caller must retry explicitly)", async () => {

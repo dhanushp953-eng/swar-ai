@@ -5,7 +5,7 @@ import shutil
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -92,10 +92,18 @@ async def _run_warmup(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.environ.get("APP_SKIP_WARMUP") == "1":
-        app.state.warmup_status = "ready"
+    # Vercel's memory-constrained serverless functions can crash during cold
+    # start when the background warm-up primes librosa (numba JIT + pyin model
+    # load) concurrently with request handling. That crash surfaces as a fast
+    # connection reset (XHR status 0), not a timeout. On Vercel we skip the
+    # startup warm-up and let /api/analyze pay the JIT cost inline on the first
+    # request instead — lower peak memory, no serverless crash.
+    skip_warmup = os.environ.get("APP_SKIP_WARMUP") == "1" or os.environ.get("VERCEL") == "1"
+    if skip_warmup:
+        reason = "APP_SKIP_WARMUP" if os.environ.get("APP_SKIP_WARMUP") == "1" else "vercel"
+        app.state.warmup_status = "ready" if reason == "APP_SKIP_WARMUP" else "skipped"
         app.state.warmup_task = None
-        logger.info("Analysis warm-up skipped (APP_SKIP_WARMUP=1).")
+        logger.info("Analysis warm-up-prerequisite skipped (reason=%s).", reason)
         yield
     else:
         app.state.warmup_status = "warming"
@@ -210,8 +218,12 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
         )
 
     @app.post("/api/analyze", response_model=JobResponse, status_code=201, tags=["analysis"])
-    async def analyze(file: UploadFile = File(..., description="WAV, MP3, M4A, or OGG audio you own or are authorised to analyze."), authorized: bool | None = Form(default=None, description="Confirm that you own or are authorised to analyze this audio.")) -> JobResponse:
+    async def analyze(request: Request, response: Response, file: UploadFile = File(..., description="WAV, MP3, M4A, or OGG audio you own or are authorised to analyze."), authorized: bool | None = Form(default=None, description="Confirm that you own or are authorised to analyze this audio.")) -> JobResponse:
+        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        client = request.client.host if request.client else "unknown"
+        logger.info("analyze request_id=%s stage=receive client=%s", request_id, client)
         if authorized is not True:
+            logger.warning("analyze request_id=%s stage=unauthorized", request_id)
             raise AnalysisError("authorization_required", "Confirm that you own or are authorised to analyze this audio.", 403)
         warmup_task = getattr(app.state, "warmup_task", None)
         if warmup_task is not None and not warmup_task.done():
@@ -224,22 +236,31 @@ def create_app(settings: Settings | None = None, ai_service: AIService | None = 
         job_id = str(uuid.uuid4())
         jobs: JobStore = app.state.jobs
         record = None
+        staged_path: str | None = None
         try:
             async with staged_upload(file, active_settings) as staged_path:
                 record = jobs.create(job_id)
                 jobs.update(job_id, status="validated", progress=25)
                 jobs.update(job_id, status="processing", progress=40)
+                logger.info("analyze request_id=%s stage=analyze", request_id)
                 rhythm = app.state.rhythm_analyzer.analyze(staged_path)
                 melody = app.state.melody_analyzer.analyze(staged_path)
                 jobs.update(job_id, status="completed", progress=100, rhythm=rhythm, melody=melody)
         except AnalysisError as error:
             if record is not None:
                 jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code=error.code, message=error.message, details=error.details))
+            logger.warning("analyze request_id=%s stage=error exc_type=%s code=%s", request_id, type(error).__name__, error.code)
             raise
         except Exception as error:
+            exc_type = type(error).__name__
             if record is not None:
                 jobs.update(job_id, status="failed", progress=100, error=ErrorResponse(code="analysis_failed", message="The audio could not be analyzed.", details={}))
+            logger.error("analyze request_id=%s stage=error exc_type=%s", request_id, exc_type)
             raise AnalysisError("analysis_failed", "The audio could not be analyzed.", 422) from error
+        finally:
+            removed = staged_path is None or not os.path.exists(staged_path)
+            logger.info("analyze request_id=%s stage=cleanup removed=%s", request_id, removed)
+        response.headers["X-Request-ID"] = request_id
         return jobs.get(job_id).response()
 
     @app.get("/api/jobs/{job_id}", response_model=JobResponse, tags=["analysis"])
