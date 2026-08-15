@@ -8,6 +8,12 @@
 // The voice *lifecycle* (polyphony, sustain, release-all, stuck-note races) is
 // owned by the Tone-free PianoVoiceController, which drives this engine through
 // the PianoVoiceSynthLike interface (triggerAttack / triggerRelease / releaseAll).
+//
+// Signal chain (per voice -> master):
+//   oscillators -> partialGain -> envelope(env) -> master(volume) -> limiter
+//     (DynamicsCompressor, brick-wall-ish) -> out(trim) -> destination
+// The limiter is what keeps 16 simultaneous voices from summing into hard
+// clipping (the "gurr"/crackle) on laptop and mobile speakers.
 
 import type { PianoVoiceSynthLike } from "./piano-voices";
 
@@ -47,7 +53,16 @@ interface Timbre {
   release: number;
 }
 
+// Below this gain a voice is effectively silent; used as the floor for
+// exponential ramps (which cannot target 0) and as the "fully stopped" gate.
 const MIN_LEVEL = 0.0001;
+// Per-voice envelope peak. Deliberately below 1.0 so that even a handful of
+// simultaneous voices stay inside the limiter's headroom instead of slamming
+// into clipping before the compressor can react.
+const VOICE_PEAK = 0.9;
+// Final trim applied after the limiter as a last line of defense against
+// inter-sample peaks sneaking past 0 dBFS.
+const OUT_TRIM = 0.9;
 
 // Simple, pleasant timbres. Keys intentionally overlap both the usePianoAudio
 // InstrumentName set ("piano" | "warm-pad" | "bell") and the usePiano
@@ -122,22 +137,34 @@ interface Voice {
 export interface NativePianoSynthOptions {
   instrument?: string;
   volumeDb?: number;
+  /** Final output trim after the limiter (0..1). Defaults to OUT_TRIM. */
+  outputTrim?: number;
 }
 
 /**
  * Polyphonic Web Audio piano engine.
  *
- * One master GainNode (volume) feeds the provided destination node. Each note
- * is an independent voice: a per-note GainNode envelope (attack/decay/sustain/
+ * One master bus (volume -> limiter -> trim) feeds the destination. Each note is
+ * an independent voice: a per-note GainNode envelope (attack/decay/sustain/
  * release) driven by one or more OscillatorNodes. Voices are released on
- * note-off and fully torn down on stop() to avoid node leaks.
+ * note-off and fully torn down (oscillators stopped, nodes disconnected) so
+ * nothing can leak or keep ringing.
+ *
+ * Envelopes start from a true zero and end at a true zero (a short linear tail
+ * after the exponential fade) so note starts and stops are click-free. A fast
+ * re-attack of a still-fading note cancels that tail instead of stacking a
+ * second oscillator set on top of it.
  */
 export class NativePianoSynth implements PianoVoiceSynthLike {
   private readonly ctx: AudioContext;
   private readonly master: GainNode;
+  private readonly compressor: DynamicsCompressorNode;
+  private readonly out: GainNode;
   private readonly voices = new Map<string, Voice>();
+  private readonly releasing = new Map<string, Voice>();
   private instrument: string;
   private volumeDb: number;
+  private readonly outputTrim: number;
 
   constructor(
     ctx: AudioContext,
@@ -147,9 +174,26 @@ export class NativePianoSynth implements PianoVoiceSynthLike {
     this.ctx = ctx;
     this.instrument = options.instrument ?? "piano";
     this.volumeDb = options.volumeDb ?? -8;
+    this.outputTrim = options.outputTrim ?? OUT_TRIM;
+
     this.master = ctx.createGain();
     this.master.gain.value = dbToGain(this.volumeDb);
-    this.master.connect(destination);
+
+    // Brick-wall-ish limiter: anything above the threshold is crushed so that
+    // many simultaneous voices cannot hard-clip the output.
+    this.compressor = ctx.createDynamicsCompressor();
+    this.compressor.threshold.value = -8;
+    this.compressor.knee.value = 0;
+    this.compressor.ratio.value = 20;
+    this.compressor.attack.value = 0.003;
+    this.compressor.release.value = 0.25;
+
+    this.out = ctx.createGain();
+    this.out.gain.value = this.outputTrim;
+
+    this.master.connect(this.compressor);
+    this.compressor.connect(this.out);
+    this.out.connect(destination);
   }
 
   /** Update the master volume (dB). Smoothly tracks to avoid clicks. */
@@ -170,18 +214,30 @@ export class NativePianoSynth implements PianoVoiceSynthLike {
   }
 
   triggerAttack(note: string): void {
-    if (this.voices.has(note)) return; // already sounding — no duplicate voice
+    // Cancel any in-progress release tail for this pitch so a fast re-attack
+    // cannot stack a second oscillator set on top of the fading one (the
+    // "gurr"/crackle after rapid repeats). This is the identity-safe path: the
+    // tail is addressed by its note name, never by a stale node reference.
+    const tail = this.releasing.get(note);
+    if (tail) {
+      this.killVoice(tail);
+      this.releasing.delete(note);
+    }
+    if (this.voices.has(note)) return; // duplicate attack guard
+
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const timbre = resolveTimbre(this.instrument);
+    const attack = Math.max(timbre.attack, 0.001);
 
     const env = ctx.createGain();
     env.gain.cancelScheduledValues(now);
-    env.gain.setValueAtTime(MIN_LEVEL, now);
-    env.gain.linearRampToValueAtTime(1, now + timbre.attack);
+    // Start from a true zero and ramp up linearly so the attack is click-free.
+    env.gain.setValueAtTime(0, now);
+    env.gain.linearRampToValueAtTime(VOICE_PEAK, now + attack);
     env.gain.exponentialRampToValueAtTime(
-      Math.max(timbre.sustain, MIN_LEVEL),
-      now + timbre.attack + timbre.decay,
+      Math.max(timbre.sustain * VOICE_PEAK, MIN_LEVEL),
+      now + attack + timbre.decay,
     );
     env.connect(this.master);
 
@@ -205,29 +261,7 @@ export class NativePianoSynth implements PianoVoiceSynthLike {
     const voice = this.voices.get(note);
     if (!voice) return;
     this.voices.delete(note);
-
-    const now = this.ctx.currentTime;
-    const release = voice.releaseTime;
-    const current = Math.max(voice.env.gain.value, MIN_LEVEL);
-    voice.env.gain.cancelScheduledValues(now);
-    voice.env.gain.setValueAtTime(current, now);
-    voice.env.gain.exponentialRampToValueAtTime(MIN_LEVEL, now + release);
-
-    for (const osc of voice.oscillators) {
-      osc.stop(now + release + 0.03);
-      osc.onended = () => {
-        try {
-          osc.disconnect();
-        } catch {
-          // already disconnected
-        }
-        try {
-          voice.env.disconnect();
-        } catch {
-          // already disconnected
-        }
-      };
-    }
+    this.fadeOut(note, voice, voice.releaseTime);
   }
 
   releaseAll(): void {
@@ -236,13 +270,80 @@ export class NativePianoSynth implements PianoVoiceSynthLike {
     }
   }
 
-  /** Stop every voice and disconnect the master bus. Safe to call repeatedly. */
+  /** Stop every voice (sounding or still fading) and disconnect the master bus.
+   *  Safe to call repeatedly. */
   dispose(): void {
-    this.releaseAll();
+    for (const voice of this.voices.values()) this.killVoice(voice);
+    for (const voice of this.releasing.values()) this.killVoice(voice);
+    this.voices.clear();
+    this.releasing.clear();
+    this.disconnectNode(this.master);
+    this.disconnectNode(this.compressor);
+    this.disconnectNode(this.out);
+  }
+
+  // --- internals -----------------------------------------------------------
+
+  /** Smooth release: exponential fade to the inaudible floor, then a short
+   *  linear ramp to a true zero so the oscillator can stop without a click. */
+  private fadeOut(note: string, voice: Voice, release: number): void {
+    const now = this.ctx.currentTime;
+    const env = voice.env;
+    const current = Math.max(env.gain.value, MIN_LEVEL);
+    env.gain.cancelScheduledValues(now);
+    env.gain.setValueAtTime(current, now);
+    env.gain.exponentialRampToValueAtTime(MIN_LEVEL, now + release);
+    env.gain.linearRampToValueAtTime(0, now + release + 0.02);
+
+    const stopAt = now + release + 0.03;
+    let remaining = voice.oscillators.length;
+    for (const osc of voice.oscillators) {
+      this.stopOscillator(osc, stopAt);
+      osc.onended = () => {
+        this.disconnectNode(osc);
+        if (--remaining === 0) {
+          this.disconnectNode(env);
+          this.releasing.delete(note);
+        }
+      };
+    }
+    // Track the fading voice by note so a fast re-attack can cancel it.
+    this.releasing.set(note, voice);
+  }
+
+  /** Fast cutoff used for re-trigger cancellation and disposal. */
+  private killVoice(voice: Voice): void {
+    const now = this.ctx.currentTime;
+    const release = 0.02;
+    const env = voice.env;
+    const current = Math.max(env.gain.value, MIN_LEVEL);
+    env.gain.cancelScheduledValues(now);
+    env.gain.setValueAtTime(current, now);
+    env.gain.exponentialRampToValueAtTime(MIN_LEVEL, now + release);
+    env.gain.linearRampToValueAtTime(0, now + release + 0.01);
+    const stopAt = now + release + 0.02;
+    for (const osc of voice.oscillators) {
+      this.stopOscillator(osc, stopAt);
+      osc.onended = () => {
+        this.disconnectNode(osc);
+        this.disconnectNode(env);
+      };
+    }
+  }
+
+  private stopOscillator(osc: OscillatorNode, stopAt: number): void {
     try {
-      this.master.disconnect();
+      osc.stop(stopAt);
     } catch {
-      // already disconnected
+      // Already stopped (e.g. double-stop during a re-trigger cancel).
+    }
+  }
+
+  private disconnectNode(node: { disconnect: (() => void) | (() => void) }): void {
+    try {
+      node.disconnect();
+    } catch {
+      // Already disconnected.
     }
   }
 }

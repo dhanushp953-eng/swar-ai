@@ -30,6 +30,21 @@ class FakeSynth implements PianoVoiceSynthLike {
   }
 }
 
+class CountingSynth implements PianoVoiceSynthLike {
+  open = 0;
+  maxOpen = 0;
+  triggerAttack(): void {
+    this.open += 1;
+    if (this.open > this.maxOpen) this.maxOpen = this.open;
+  }
+  triggerRelease(): void {
+    this.open -= 1;
+  }
+  releaseAll(): void {
+    this.open = 0;
+  }
+}
+
 describe("PianoVoiceController", () => {
   it("attacks on press and releases on release (balanced voices)", () => {
     const synth = new FakeSynth();
@@ -174,5 +189,42 @@ describe("PianoVoiceController", () => {
     voices.attack("B4");
     voices.release("B4");
     expect(nextSynth.openVoices()).toEqual([]);
+  });
+
+  it("bounds polyphony to 16 voices under 1,000 rapid note presses", () => {
+    const synth = new CountingSynth();
+    const voices = new PianoVoiceController(synth, { maxPolyphony: 16 });
+    const notes = [
+      "C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5", "E5",
+      "F5", "G5", "A5", "B5", "C6", "D6", "E6", "F6", "G6", "A6",
+    ];
+    for (let i = 0; i < 1000; i++) {
+      const note = notes[i % notes.length];
+      voices.press(note);
+      voices.attack(note);
+    }
+    // The controller steals the oldest voice whenever the limit is reached, so
+    // the synth never accumulates more than 16 simultaneous oscillators.
+    expect(synth.maxOpen).toBe(16);
+    voices.releaseAll();
+    expect(synth.open).toBe(0);
+  });
+
+  it("bounds polyphony to 16 even with sustain holding every note", () => {
+    const synth = new CountingSynth();
+    const voices = new PianoVoiceController(synth, { sustain: true, maxPolyphony: 16 });
+    const notes = [
+      "C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5", "E5",
+      "F5", "G5", "A5", "B5", "C6", "D6", "E6", "F6", "G6", "A6",
+    ];
+    for (let i = 0; i < 1000; i++) {
+      const note = notes[i % notes.length];
+      voices.press(note);
+      voices.attack(note);
+      voices.release(note); // key up, but pedal is down -> voice stays held
+    }
+    expect(synth.maxOpen).toBeLessThanOrEqual(16);
+    voices.setSustain(false); // pedal lifts -> every sustained voice releases
+    expect(synth.open).toBe(0);
   });
 });

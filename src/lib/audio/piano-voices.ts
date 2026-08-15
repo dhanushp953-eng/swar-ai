@@ -21,20 +21,33 @@ export interface PianoVoiceSynthLike {
 export type PianoVoiceControllerOptions = {
   /** Sustain pedal starts in this state (defaults to off). */
   sustain?: boolean;
+  /** Maximum number of voices that may sound at once. When exceeded the oldest
+   *  sounding voice is stolen (fast-released) before a new attack. Defaults to 16. */
+  maxPolyphony?: number;
 };
+
+// Hard ceiling so a pathological driver can never blow past the intended limit.
+const ABSOLUTE_MAX_POLYPHONY = 32;
 
 export class PianoVoiceController {
   private synth: PianoVoiceSynthLike;
   private active = new Set<string>();
   private sustained = new Set<string>();
-  private attacked = new Set<string>();
+  // Insertion-ordered so we can steal the oldest sounding voice at capacity.
+  private attacked = new Map<string, number>();
+  private seq = 0;
   private sustainEnabled: boolean;
+  private readonly maxPolyphony: number;
   private readonly listeners = new Set<() => void>();
   private snapshot: ReadonlySet<string> = new Set();
 
   constructor(synth: PianoVoiceSynthLike, options: PianoVoiceControllerOptions = {}) {
     this.synth = synth;
     this.sustainEnabled = options.sustain ?? false;
+    this.maxPolyphony = Math.min(
+      Math.max(options.maxPolyphony ?? 16, 1),
+      ABSOLUTE_MAX_POLYPHONY,
+    );
   }
 
   get isSustainEnabled(): boolean {
@@ -65,7 +78,7 @@ export class PianoVoiceController {
    *  pending attack replays on the fresh engine. Outgoing voices are released
    *  on the old engine first so nothing rings after it is disposed. */
   rebuildEngine(synth: PianoVoiceSynthLike): void {
-    for (const note of this.attacked) this.synth.triggerRelease(note);
+    for (const note of this.attacked.keys()) this.synth.triggerRelease(note);
     this.attacked.clear();
     this.sustained.clear();
     this.synth = synth;
@@ -91,11 +104,27 @@ export class PianoVoiceController {
   }
 
   /** Start the voice. Safe to call once the context resumes; a no-op if the
-   *  press was released or swept away by releaseAll() in the meantime. */
+   *  press was released or swept away by releaseAll() in the meantime.
+   *
+   *  Bounded polyphony: if we are already at the voice limit, steal the oldest
+   *  sounding voice first so the synth never accumulates an unbounded number of
+   *  oscillators (the root cause of the laptop/mobile "gurr"/silence after
+   *  sustained play). Stealing keeps this controller and the engine in lockstep
+   *  — the stolen note is dropped from every tracked set. */
   attack(note: string): void {
     if (!this.active.has(note) || this.attacked.has(note)) return;
+    if (this.attacked.size >= this.maxPolyphony) {
+      const oldest = this.attacked.keys().next().value;
+      if (oldest !== undefined) {
+        this.synth.triggerRelease(oldest);
+        this.attacked.delete(oldest);
+        this.active.delete(oldest);
+        this.sustained.delete(oldest);
+      }
+    }
     this.synth.triggerAttack(note);
-    this.attacked.add(note);
+    this.attacked.set(note, this.seq++);
+    this.sync();
   }
 
   /** Key-up / note-off. Honors sustain: while the pedal is down the voice
@@ -134,7 +163,7 @@ export class PianoVoiceController {
 
   /** Force-release every voice (stuck-note prevention). */
   releaseAll(): void {
-    for (const note of this.attacked) this.synth.triggerRelease(note);
+    for (const note of this.attacked.keys()) this.synth.triggerRelease(note);
     this.attacked.clear();
     this.active.clear();
     this.sustained.clear();
