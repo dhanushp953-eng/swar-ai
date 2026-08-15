@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Square } from "lucide-react";
 import { createPianoNotes } from "@/utils/music";
+import { isEditableTarget } from "@/utils/dom";
 import { usePianoAudio } from "@/hooks/usePianoAudio";
 import type { InstrumentName } from "@/types/music";
 
@@ -25,8 +26,17 @@ export function PianoKeyboard() {
   }, [stopNote]);
 
   useEffect(() => {
-    const down = (event: KeyboardEvent) => { if (event.repeat) return; const note = keyboardMap.get(event.key.toLowerCase()); if (note) { event.preventDefault(); press(note.midi, note.name); } };
-    const up = (event: KeyboardEvent) => { const note = keyboardMap.get(event.key.toLowerCase()); if (note) release(note.midi, note.name); };
+    const down = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      if (event.repeat) return;
+      const note = keyboardMap.get(event.key.toLowerCase());
+      if (note) { event.preventDefault(); press(note.midi, note.name); }
+    };
+    const up = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const note = keyboardMap.get(event.key.toLowerCase());
+      if (note) release(note.midi, note.name);
+    };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up); return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [press, release]);
 
