@@ -1,6 +1,10 @@
 # SwarAI
 
-SwarAI is a Next.js frontend foundation for an AI-powered visual instrument tutor. This phase includes a responsive landing page and a browser-based 61-key virtual piano. Audio is generated locally with Tone.js.
+SwarAI is a Next.js app for an AI-powered visual instrument tutor: a responsive landing page and a browser-based 61-key virtual piano with audio analysis, MIDI, guided practice, and an AI tutor.
+
+**Live demo:** https://swar-ai-psi.vercel.app
+
+All piano sound is synthesized locally in the browser with the native Web Audio API (no Tone.js dependency).
 
 ## Setup
 
@@ -26,6 +30,33 @@ npm run dev
 ```
 
 The frontend reads `NEXT_PUBLIC_AUDIO_API_URL` from `.env.example` and defaults to `http://localhost:8000` for local development. FastAPI allows the local frontend origins `http://localhost:3000` and `http://localhost:3001`; production deployments must set explicit `CORS_ORIGINS` values. Audio analysis is local and requires no API key.
+
+## Using SwarAI
+
+### Piano
+The virtual piano spans C2–C7 (61 keys) and is played with the mouse, touch, or the computer keyboard. Sound is synthesized in the browser using the native Web Audio API. Use the toolbar to switch instrument (piano / warm pad / bell), adjust volume, and toggle sustain. **Release All** stops every sounding note. A short **Test sound** plays A4 so you can confirm audio is unlocked — browsers require a user gesture before any audio starts.
+
+### Audio analysis
+Open the analysis panel and choose an audio file (or record from your microphone). Uploads must be **authorised audio** (see Privacy). The backend transcribes melody note events and estimates BPM; results show note names, timing, velocity, and confidence, plus beat timestamps.
+
+### MIDI
+Connect a MIDI controller (Web MIDI API, available in Chromium-based browsers). Incoming note-on/off events are mapped to the on-screen keyboard and the active-note display.
+
+### Practice
+Load a built-in lesson or an analysed clip to start guided practice. The falling-note piano roll is synchronized with the keyboard and supports play, pause, restart, seek, count-in, metronome, loop, speed, hand, note-name, and fingering controls.
+
+### AI tutor
+The Studio tutor panel sends only sanitized lesson/score context to the backend advice endpoint (`POST /api/tutor/advice`) and shows grounded feedback (strengths, priorities, pitch/timing/rhythm notes, and exercises). With no AI provider key configured it uses a deterministic local mock, so it works without any API key.
+
+## Upload limits & supported formats
+
+- **Maximum size:** 4 MB per file.
+- **Supported formats:** WAV, MP3, M4A, OGG.
+- Files are analysed by the local backend; no API key is required.
+
+## Privacy & authorised audio
+
+SwarAI synthesizes piano audio entirely in your browser. Analysis uploads are **authorised audio only** — audio you own or are otherwise permitted to analyse (for example your own playing or practice recordings). The service does **not** collect microphone streams, raw MIDI, personal data, accounts, or cloud history. AI tutor calls are backend-only, structured/text-only, and optional; missing keys safely fall back to a local mock. No API keys, secrets, or paid services are required.
 
 ## Phase 6A AI provider foundation
 
@@ -93,7 +124,9 @@ npm run start
 
 - Interactive 61-key piano from C2 to C7
 - Mouse, touch, and mapped computer keyboard input
-- Soft piano, warm pad, and soft bell synthesis options
+- Soft piano, warm pad, and soft bell synthesis options (native Web Audio, no Tone.js)
+- Reliable continuous playback on desktop and mobile via the native Web Audio engine
+- A copyright-free four-note demo clip at `/samples/four-notes-demo.wav`
 - Volume and sustain controls
 - Responsive horizontal piano scrolling on small screens
 - Three original local demo exercises with typed note events
