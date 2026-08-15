@@ -2,57 +2,50 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 
-// Shared, mutable state for the fakes so the tone mock and the test can observe
-// how many synth graphs are actually built.
-const { getRawContextMock, rawCtx, synthInstances } = vi.hoisted(() => {
+// Track every NativePianoSynth instance the hook builds so we can assert the
+// engine is created once and only recreated when the AudioContext changes.
+const { getRawContextMock, rawCtx, rawCtx2, engineInstances } = vi.hoisted(() => {
   const rawCtx = {
     state: "running" as AudioContextState,
+    destination: {},
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   };
-  const getRawContextMock = vi.fn(() => rawCtx);
-  const synthInstances: Array<{
-    disposed: boolean;
-    volume: { value: number };
-    context: { rawContext: unknown };
-    set: ReturnType<typeof vi.fn>;
-    disconnect: ReturnType<typeof vi.fn>;
-    dispose: ReturnType<typeof vi.fn>;
-    toDestination: ReturnType<typeof vi.fn>;
+  const rawCtx2 = {
+    state: "running" as AudioContextState,
+    destination: {},
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  };
+  const engineInstances: Array<{
     triggerAttack: ReturnType<typeof vi.fn>;
     triggerRelease: ReturnType<typeof vi.fn>;
-    triggerAttackRelease: ReturnType<typeof vi.fn>;
     releaseAll: ReturnType<typeof vi.fn>;
+    setVolume: ReturnType<typeof vi.fn>;
+    setInstrument: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+    options: unknown;
   }> = [];
-  return { getRawContextMock, rawCtx, synthInstances };
+  const getRawContextMock = vi.fn(() => rawCtx);
+  return { getRawContextMock, rawCtx, rawCtx2, engineInstances };
 });
 
-vi.mock("tone", () => {
-  class FakeSynth {
-    disposed = false;
-    volume = { value: 0 };
-    context = { rawContext: rawCtx };
-    set = vi.fn();
-    disconnect = vi.fn();
-    dispose = vi.fn(() => {
-      this.disposed = true;
-    });
-    toDestination = vi.fn(() => this);
+vi.mock("@/lib/audio/native-piano-synth", () => ({
+  NativePianoSynth: class {
     triggerAttack = vi.fn();
     triggerRelease = vi.fn();
-    triggerAttackRelease = vi.fn();
     releaseAll = vi.fn();
-    constructor() {
-      synthInstances.push(this);
+    setVolume = vi.fn();
+    setInstrument = vi.fn();
+    dispose = vi.fn();
+    options: unknown;
+    constructor(_ctx: unknown, _destination: unknown, options: unknown) {
+      this.options = options;
+      engineInstances.push(this);
     }
-  }
-  return {
-    PolySynth: FakeSynth,
-    Synth: class {},
-    getContext: vi.fn(() => ({ rawContext: rawCtx })),
-    getDestination: vi.fn(() => ({})),
-  };
-});
+  },
+  noteToFrequency: () => 440,
+}));
 
 vi.mock("@/lib/audio/audio-unlock", () => ({
   useToneAudioUnlock: vi.fn(() => ({
@@ -69,73 +62,127 @@ const flush = () => act(async () => {
 });
 
 afterEach(() => {
-  synthInstances.length = 0;
+  engineInstances.length = 0;
   vi.clearAllMocks();
   getRawContextMock.mockReturnValue(rawCtx);
 });
 
-describe("usePianoAudio silent-after-inactivity recovery", () => {
-  it("does not rebuild a healthy synth on repeated presses", async () => {
+describe("usePianoAudio native engine", () => {
+  it("plays a note through the native engine", async () => {
     const { result } = renderHook(() => usePianoAudio());
     await act(async () => {
       result.current.playNote("C4");
     });
     await flush();
-    await act(async () => {
-      result.current.playNote("E4");
-    });
-    await flush();
 
-    expect(synthInstances.length).toBe(1);
-    expect(synthInstances[0].triggerAttack).toHaveBeenCalledWith("E4");
-    expect(synthInstances[0].dispose).not.toHaveBeenCalled();
+    expect(engineInstances.length).toBe(1);
+    expect(engineInstances[0].triggerAttack).toHaveBeenCalledWith("C4");
   });
 
-  it("recreates the synth on the next press after a disconnect (raw context still running)", async () => {
+  it("supports multiple simultaneous notes (polyphony)", async () => {
     const { result } = renderHook(() => usePianoAudio());
     await act(async () => {
       result.current.playNote("C4");
     });
-    await flush();
-    expect(synthInstances.length).toBe(1);
-
-    // Simulate the OS tearing down the audio route (focus/visibility/pageshow)
-    // while the AudioContext itself is still running.
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-    });
-
     await act(async () => {
       result.current.playNote("E4");
     });
     await flush();
 
-    expect(synthInstances.length).toBe(2);
-    expect(synthInstances[0].dispose).toHaveBeenCalled();
-    expect(synthInstances[1].triggerAttack).toHaveBeenCalledWith("E4");
+    // One engine, two independent voices attacked.
+    expect(engineInstances.length).toBe(1);
+    expect(engineInstances[0].triggerAttack).toHaveBeenCalledWith("C4");
+    expect(engineInstances[0].triggerAttack).toHaveBeenCalledWith("E4");
+
+    // Releasing one note must not release the other.
+    await act(async () => {
+      result.current.stopNote("C4");
+    });
+    expect(engineInstances[0].triggerRelease).toHaveBeenCalledWith("C4");
+    expect(engineInstances[0].triggerRelease).not.toHaveBeenCalledWith("E4");
   });
 
-  it("rebuilds when the synth's context no longer matches the live context", async () => {
+  it("does not create a duplicate engine across many presses", async () => {
+    const { result } = renderHook(() => usePianoAudio());
+    for (let i = 0; i < 20; i++) {
+      const note = `C${4 + (i % 3)}`;
+      await act(async () => {
+        result.current.playNote(note);
+      });
+      await act(async () => {
+        result.current.stopNote(note);
+      });
+    }
+    await flush();
+    expect(engineInstances.length).toBe(1);
+  });
+
+  it("releases every voice on Release All", async () => {
+    const { result } = renderHook(() => usePianoAudio());
+    await act(async () => {
+      result.current.playNote("C4");
+      result.current.playNote("E4");
+      result.current.playNote("G4");
+    });
+    await flush();
+    await act(async () => {
+      result.current.releaseAllNotes();
+    });
+    expect(engineInstances[0].triggerRelease).toHaveBeenCalledWith("C4");
+    expect(engineInstances[0].triggerRelease).toHaveBeenCalledWith("E4");
+    expect(engineInstances[0].triggerRelease).toHaveBeenCalledWith("G4");
+  });
+
+  it("rebuilds the engine when the AudioContext changes underneath it", async () => {
     const { result } = renderHook(() => usePianoAudio());
     await act(async () => {
       result.current.playNote("C4");
     });
     await flush();
-    expect(synthInstances.length).toBe(1);
+    expect(engineInstances.length).toBe(1);
 
-    // Live context object changes (an OS audio reset) but stays running.
-    getRawContextMock.mockReturnValue({
-      state: "running",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    });
+    // OS swaps the audio context (an audio-route reset).
+    getRawContextMock.mockReturnValue(rawCtx2);
 
     await act(async () => {
       result.current.playNote("E4");
     });
     await flush();
 
-    expect(synthInstances.length).toBe(2);
-    expect(synthInstances[1].triggerAttack).toHaveBeenCalledWith("E4");
+    // A second, distinct engine is created and the new note played on it.
+    expect(engineInstances.length).toBe(2);
+    expect(engineInstances[1].triggerAttack).toHaveBeenCalledWith("E4");
+  });
+
+  it("applies volume and instrument to the engine without rebuilding it", async () => {
+    const { result } = renderHook(() => usePianoAudio());
+    await act(async () => {
+      result.current.playNote("C4");
+    });
+    await flush();
+    expect(engineInstances.length).toBe(1);
+
+    await act(async () => {
+      result.current.setVolume(-3);
+      result.current.setInstrument("bell");
+    });
+
+    expect(engineInstances.length).toBe(1);
+    expect(engineInstances[0].setVolume).toHaveBeenCalledWith(-3);
+    expect(engineInstances[0].setInstrument).toHaveBeenCalledWith("bell");
+  });
+
+  it("tears the engine down on unmount", async () => {
+    const { result, unmount } = renderHook(() => usePianoAudio());
+    await act(async () => {
+      result.current.playNote("C4");
+    });
+    await flush();
+    expect(engineInstances[0].dispose).not.toHaveBeenCalled();
+
+    act(() => {
+      unmount();
+    });
+    expect(engineInstances[0].dispose).toHaveBeenCalled();
   });
 });
