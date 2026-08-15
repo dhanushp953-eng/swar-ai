@@ -247,7 +247,9 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
   }, [status]);
 
   useEffect(() => {
-    if (!isComplete || !enabled || !result || savedThisRun.current) return;
+    if (!isComplete || !result) return;
+    if (result.counts.performed <= 0) return;
+    if (savedThisRun.current) return;
     savedThisRun.current = true;
     saveResult({
       lessonId: lessonId ?? "unknown",
@@ -258,7 +260,7 @@ export function PracticePanel({ events, allEvents, handMode = "both", engine, co
       handMode,
       result,
     });
-  }, [enabled, focus, handMode, input, isComplete, lessonId, lessonTitle, preset, result, saveResult]);
+  }, [focus, handMode, input, isComplete, lessonId, lessonTitle, preset, result, saveResult]);
 
   const handleExportResults = () => {
     if (practiceResults.results.length === 0) {

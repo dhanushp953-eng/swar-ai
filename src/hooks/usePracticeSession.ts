@@ -122,8 +122,8 @@ export function usePracticeSession(options: UsePracticeSessionOptions): {
 
   // Once the lesson completes, resolve the attempt so nothing stays pending.
   const result = useMemo(() => {
-    if (!enabled) return null;
     if (status === "complete") return holder.session.finalize(duration);
+    if (!enabled) return null;
     return snapshot.epoch === holder.epoch ? snapshot.result : null;
   }, [duration, enabled, holder, snapshot, status]);
 
