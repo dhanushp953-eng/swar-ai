@@ -6,10 +6,12 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 4_000_000;
 /**
  * Bounds the entire analysis round-trip (file upload + backend processing + any
  * status polling) in the browser. The backend analyses audio synchronously
- * inside the POST, so a single 345 KB clip can take tens of seconds; 120 s is a
- * safe ceiling that still fails fast if FastAPI is unreachable or wedged.
+ * inside the POST, so a single clip can take tens of seconds — and on Vercel a
+ * cold function start plus librosa warm-up can add more. 240 s is a safe ceiling
+ * that still fails fast if FastAPI is unreachable or wedged, while comfortably
+ * covering cold-start analysis now that the server function allows up to 300 s.
  */
-export const ANALYSIS_TIMEOUT_MS = 120_000;
+export const ANALYSIS_TIMEOUT_MS = 240_000;
 export const POLL_INTERVAL_MS = 900;
 
 export type SupportedAudioExtension = (typeof SUPPORTED_AUDIO_EXTENSIONS)[number];
@@ -237,10 +239,10 @@ function requestJson(path: string, signal: AbortSignal): Promise<AnalysisJob> {
         resolve(validateResponse(payload));
       })
       .catch((error: unknown) => {
-        if (timedOut) reject(new AudioApiError("The analysis request timed out. Try again.", { code: "timeout" }));
+        if (timedOut) reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "timeout" }));
         else if (signal.aborted || controller.signal.aborted) reject(new AudioApiError("Analysis cancelled.", { code: "cancelled", cancelled: true }));
         else if (error instanceof AudioApiError) reject(error);
-        else reject(new AudioApiError("The analysis service could not be reached.", { code: "network_error" }));
+        else reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "network_error" }));
       })
       .finally(() => {
         globalThis.clearTimeout(timeout);
@@ -283,11 +285,11 @@ export function uploadAudio(file: File, signal: AbortSignal, onProgress: UploadP
     };
     xhr.onerror = () => {
       finish();
-      reject(new AudioApiError("The analysis service could not be reached.", { code: "network_error" }));
+      reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "network_error" }));
     };
     xhr.ontimeout = () => {
       finish();
-      reject(new AudioApiError("The upload timed out. Try again.", { code: "timeout" }));
+      reject(new AudioApiError("The analysis server timed out. Please retry once.", { code: "timeout" }));
     };
     xhr.onabort = () => {
       finish();

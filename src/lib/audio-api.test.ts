@@ -145,6 +145,36 @@ describe("audio upload transport", () => {
     await expect(request).rejects.toMatchObject({ code: "timeout" });
   });
 
+  it("reports the server timeout message when the upload times out", async () => {
+    class TimeoutXmlHttpRequest extends FakeXmlHttpRequest {
+      send(body: FormData) {
+        this.body = body;
+        this.ontimeout?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", TimeoutXmlHttpRequest);
+    const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
+    await expect(request).rejects.toMatchObject({
+      code: "timeout",
+      message: "The analysis server timed out. Please retry once.",
+    });
+  });
+
+  it("reports the server timeout message on a transport failure", async () => {
+    class NetworkXmlHttpRequest extends FakeXmlHttpRequest {
+      send(body: FormData) {
+        this.body = body;
+        this.onerror?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", NetworkXmlHttpRequest);
+    const request = uploadAudio(new File([new Uint8Array([1])], "voice.wav"), new AbortController().signal, () => undefined);
+    await expect(request).rejects.toMatchObject({
+      code: "network_error",
+      message: "The analysis server timed out. Please retry once.",
+    });
+  });
+
   it("does not auto-retry after a failure (caller must retry explicitly)", async () => {
     let sends = 0;
     class OnceXmlHttpRequest extends FakeXmlHttpRequest {
@@ -162,8 +192,8 @@ describe("audio upload transport", () => {
 });
 
 describe("analysis timeout budget", () => {
-  it("allows the full analysis round-trip up to 120 seconds", () => {
-    expect(ANALYSIS_TIMEOUT_MS).toBe(120_000);
+  it("allows the full analysis round-trip up to 240 seconds", () => {
+    expect(ANALYSIS_TIMEOUT_MS).toBe(240_000);
   });
 });
 

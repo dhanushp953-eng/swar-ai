@@ -151,4 +151,56 @@ describe("AudioAnalysisPanel upload flow", () => {
     expect(analyzeOpens[0]).toContain("/api/analyze");
     expect(healthCalls.length).toBe(0);
   });
+
+  it("shows the server timeout message when the upload times out", async () => {
+    class FakeAudioBuffer {
+      numberOfChannels = 1;
+      length = 1;
+      sampleRate = 44100;
+      getChannelData() {
+        return new Float32Array([0]);
+      }
+    }
+    class FakeAudioContext {
+      async decodeAudioData() {
+        return new FakeAudioBuffer();
+      }
+      close() {
+        return Promise.resolve();
+      }
+    }
+    (window as unknown as { AudioContext: typeof FakeAudioContext }).AudioContext = FakeAudioContext;
+
+    class TimeoutXhr {
+      upload: { onprogress: ((event: ProgressEvent) => void) | null } = { onprogress: null };
+      response = "";
+      responseType = "";
+      status = 0;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      ontimeout: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      open() {}
+      send() {
+        this.ontimeout?.();
+      }
+      abort() {
+        this.onabort?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", TimeoutXhr);
+
+    const { container } = render(<AudioAnalysisPanel />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [makeAudioFile("song.wav", "audio/wav", 2048)] } });
+    fireEvent.click(screen.getByLabelText(/i own this audio/i));
+    const analyse = screen.getByRole("button", { name: /analyse audio/i }) as HTMLButtonElement;
+    expect(analyse.disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(analyse);
+    });
+
+    expect(screen.getByText(/The analysis server timed out\. Please retry once\./i)).toBeTruthy();
+  });
 });
