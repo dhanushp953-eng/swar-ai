@@ -14,7 +14,6 @@ import {
   SUPPORTED_AUDIO_LABEL,
   uploadAudio,
   validateAudioFile,
-  waitForBackendReady,
   type MelodyNoteEvent,
 } from "@/lib/audio-api";
 
@@ -112,8 +111,6 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     setProgress(0);
     setStarting(true);
     try {
-      await waitForBackendReady(controller.signal);
-      if (!mountedRef.current) return;
       let fileToUpload = file;
       try {
         fileToUpload = await normalizeAudioToWav(file);
@@ -250,7 +247,6 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     </div>
 
     <div className="audio-status-region" aria-live="polite">
-      {starting && <p className="audio-starting" role="status"><LoaderCircle className="audio-spin" size={14} /> Starting analysis service…</p>}
       <div className="audio-status-header"><span className={`audio-status-dot status-${status}`} /> <strong>{isBusy ? BUSY_LABEL : STATUS_LABELS[status]}</strong><span>{status === "uploading" ? `${progress}% uploaded` : status === "completed" ? "Your local analysis is ready" : status === "failed" ? "Nothing was added to your lesson" : status === "cancelled" ? "Upload stopped" : ""}</span></div>
       <div className="audio-status-rail" aria-label={`Analysis status: ${STATUS_LABELS[status]}`}>
         {STATUS_STAGES.map((stage, index) => <div key={stage} className={`audio-status-step ${status === stage ? "is-current" : ""} ${statusIndex(status) > index ? "is-done" : ""}`}><span>{statusIndex(status) > index ? <Check size={11} /> : index + 1}</span>{STATUS_LABELS[stage]}</div>)}
