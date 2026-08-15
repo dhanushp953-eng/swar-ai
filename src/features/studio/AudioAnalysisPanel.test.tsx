@@ -201,6 +201,6 @@ describe("AudioAnalysisPanel upload flow", () => {
       fireEvent.click(analyse);
     });
 
-    expect(screen.getByText(/The analysis server timed out\. Please retry once\./i)).toBeTruthy();
+    expect(screen.getByText(/The analysis took too long and timed out\. Please retry\./i)).toBeTruthy();
   });
 });
