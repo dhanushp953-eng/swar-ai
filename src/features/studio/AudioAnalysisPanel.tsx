@@ -9,6 +9,7 @@ import {
   formatDuration,
   getMaxUploadBytes,
   mapJobStatus,
+  normalizeAudioToWav,
   pollAnalysisJob,
   SUPPORTED_AUDIO_LABEL,
   uploadAudio,
@@ -113,9 +114,26 @@ export function AudioAnalysisPanel({ detectedLessonLoaded = false, lessonLoadErr
     try {
       await waitForBackendReady(controller.signal);
       if (!mountedRef.current) return;
+      let fileToUpload = file;
+      try {
+        fileToUpload = await normalizeAudioToWav(file);
+      } catch (normalizeError) {
+        setStarting(false);
+        if (normalizeError instanceof AudioApiError) setError(normalizeError.message);
+        else setError("This audio could not be read. Try a standard WAV or MP3.");
+        setStatus("failed");
+        return;
+      }
+      if (fileToUpload.size > getMaxUploadBytes()) {
+        setStarting(false);
+        setError(`The prepared audio is larger than the ${formatBytes(getMaxUploadBytes())} limit. Use a shorter clip.`);
+        setStatus("failed");
+        return;
+      }
+      if (!mountedRef.current) return;
       setStarting(false);
       setStatus("uploading");
-      const initialJob = await uploadAudio(file, controller.signal, (nextProgress) => {
+      const initialJob = await uploadAudio(fileToUpload, controller.signal, (nextProgress) => {
         if (mountedRef.current) setProgress(nextProgress);
       });
       applyJob(initialJob);

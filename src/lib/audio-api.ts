@@ -81,6 +81,76 @@ export function getFileExtension(fileName: string): string {
   return fileName.trim().toLowerCase().split(".").pop() ?? "";
 }
 
+/** Rate used when re-encoding audio to a canonical WAV before upload. */
+export const NORMALIZED_SAMPLE_RATE = 22050;
+
+/**
+ * Encodes mono float samples into a 16-bit PCM WAV (standard WAVE_FORMAT_PCM,
+ * not WAVE_FORMAT_EXTENSIBLE) so the analysis backend's strict `wave`-based
+ * validation accepts it. The backend resamples to its own rate regardless.
+ */
+export function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+  const bytesPerSample = 2;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+  };
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+  for (let offset = 44; offset < buffer.byteLength; offset += 2) {
+    const sample = samples[(offset - 44) / 2];
+    const clamped = Math.max(-1, Math.min(1, Number.isFinite(sample) ? sample : 0));
+    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+  }
+  return buffer;
+}
+
+/**
+ * Decodes any browser-supported audio file and re-encodes it to a canonical
+ * 16-bit PCM mono WAV. This avoids server-side upload/rejection for WAVs the
+ * backend can't validate (e.g. WAVE_FORMAT_EXTENSIBLE, 24-bit, or files sent
+ * with a generic MIME type) and for codecs the server lacks (ffmpeg is off on
+ * Vercel). Throws an {@link AudioApiError} with a user-facing message if the
+ * browser cannot decode the file.
+ */
+export async function normalizeAudioToWav(file: File, targetRate: number = NORMALIZED_SAMPLE_RATE): Promise<File> {
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) throw new AudioApiError("Web Audio is not supported in this browser.", { code: "audio_unsupported" });
+  const arrayBuffer = await file.arrayBuffer();
+  const context = new AudioCtx();
+  try {
+    const decoded = await context.decodeAudioData(arrayBuffer.slice(0));
+    const channels = decoded.numberOfChannels;
+    const length = decoded.length;
+    const mono = new Float32Array(length);
+    for (let channel = 0; channel < channels; channel++) {
+      const data = decoded.getChannelData(channel);
+      for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
+    }
+    const wav = encodeWav(mono, targetRate);
+    const baseName = (file.name.replace(/\.[^.]+$/, "") || "audio").replace(/[^\w.-]/g, "_");
+    return new File([wav], `${baseName}.wav`, { type: "audio/wav" });
+  } catch (error) {
+    if (error instanceof AudioApiError) throw error;
+    throw new AudioApiError("This audio could not be read by your browser. Export it as a standard WAV or MP3 and try again.", { code: "decode_failed" });
+  } finally {
+    void context.close().catch(() => {});
+  }
+}
+
 export function validateAudioFile(file: File | null): string | null {
   if (!file) return "Choose an audio file to continue.";
   const extension = getFileExtension(file.name);

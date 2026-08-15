@@ -3,9 +3,11 @@ import {
   AudioApiError,
   type AnalysisJob,
   ANALYSIS_TIMEOUT_MS,
+  encodeWav,
   getAudioApiUrl,
   isAnalysisJob,
   mapJobStatus,
+  normalizeAudioToWav,
   uploadAudio,
   validateAudioFile,
   waitForBackendReady,
@@ -236,5 +238,111 @@ describe("backend cold-start readiness", () => {
     const pending = waitForBackendReady(controller.signal, { pollMs: 20, maxWaitMs: 5000 });
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("audio normalization before upload", () => {
+  class FakeAudioBuffer {
+    numberOfChannels: number;
+    length: number;
+    sampleRate: number;
+    private channels: Float32Array[];
+    constructor(channels: number, length: number, sampleRate: number, fill?: (channel: number, index: number) => number) {
+      this.numberOfChannels = channels;
+      this.length = length;
+      this.sampleRate = sampleRate;
+      this.channels = Array.from({ length: channels }, () => new Float32Array(length));
+      if (fill) for (let c = 0; c < channels; c++) for (let i = 0; i < length; i++) this.channels[c][i] = fill(c, i);
+    }
+    getChannelData(channel: number): Float32Array {
+      return this.channels[channel];
+    }
+  }
+
+  class FakeAudioContext {
+    async decodeAudioData(): Promise<FakeAudioBuffer> {
+      return new FakeAudioBuffer(2, 4, 44100, (channel) => (channel === 0 ? 1 : 0));
+    }
+    close(): Promise<void> {
+      return Promise.resolve();
+    }
+  }
+
+  function readWavHeader(buffer: ArrayBuffer) {
+    const view = new DataView(buffer);
+    const string = (offset: number, length: number) => String.fromCharCode(...new Uint8Array(buffer.slice(offset, offset + length)));
+    return {
+      riff: string(0, 4),
+      wave: string(8, 4),
+      fmt: string(12, 4),
+      audioFormat: view.getUint16(20, true),
+      channels: view.getUint16(22, true),
+      sampleRate: view.getUint32(24, true),
+      bitsPerSample: view.getUint16(34, true),
+      data: string(36, 4),
+      dataSize: view.getUint32(40, true),
+    };
+  }
+
+  it("encodeWav writes a standard 16-bit PCM mono WAV", () => {
+    const samples = new Float32Array([0.5, -0.5, 0, 1]);
+    const buffer = encodeWav(samples, 22050);
+    const header = readWavHeader(buffer);
+    expect(header.riff).toBe("RIFF");
+    expect(header.wave).toBe("WAVE");
+    expect(header.fmt).toBe("fmt ");
+    expect(header.data).toBe("data");
+    expect(header.audioFormat).toBe(1);
+    expect(header.channels).toBe(1);
+    expect(header.sampleRate).toBe(22050);
+    expect(header.bitsPerSample).toBe(16);
+    expect(header.dataSize).toBe(samples.length * 2);
+  });
+
+  it("normalizeAudioToWav re-encodes to a canonical WAV the server accepts", async () => {
+    vi.stubGlobal("window", { AudioContext: FakeAudioContext });
+    const file = new File([new Uint8Array([1, 2, 3])], "song.mp3", { type: "audio/mpeg" });
+    vi.spyOn(file, "arrayBuffer").mockResolvedValue(new ArrayBuffer(8));
+    const normalized = await normalizeAudioToWav(file);
+    expect(normalized.type).toBe("audio/wav");
+    expect(normalized.name).toBe("song.wav");
+    const header = readWavHeader(await normalized.arrayBuffer());
+    expect(header.audioFormat).toBe(1);
+    expect(header.channels).toBe(1);
+  });
+
+  it("normalizeAudioToWav downmixes multi-channel audio to mono", async () => {
+    vi.stubGlobal("window", { AudioContext: FakeAudioContext });
+    const file = new File([new Uint8Array([1])], "clip.wav", { type: "audio/wav" });
+    vi.spyOn(file, "arrayBuffer").mockResolvedValue(new ArrayBuffer(8));
+    const normalized = await normalizeAudioToWav(file);
+    const view = new DataView(await normalized.arrayBuffer());
+    // First mono sample is the (ch0 + ch1) / 2 average of the source: (1 + 0) / 2 = 0.5.
+    // Assert within rounding tolerance rather than an exact integer.
+    const firstSample = view.getInt16(44, true);
+    expect(firstSample).toBeGreaterThan(16000);
+    expect(firstSample).toBeLessThan(16800);
+  });
+
+  it("normalizeAudioToWav reports a clear error when the browser cannot decode", async () => {
+    class RejectingAudioContext {
+      async decodeAudioData(): Promise<FakeAudioBuffer> {
+        throw new Error("nope");
+      }
+      close(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+    vi.stubGlobal("window", { AudioContext: RejectingAudioContext });
+    const file = new File([new Uint8Array([1])], "clip.wav", { type: "audio/wav" });
+    vi.spyOn(file, "arrayBuffer").mockResolvedValue(new ArrayBuffer(8));
+    await expect(normalizeAudioToWav(file)).rejects.toMatchObject({ code: "decode_failed" });
+  });
+
+  it("normalizeAudioToWav errors when Web Audio is unavailable", async () => {
+    vi.stubGlobal("window", {});
+    const file = new File([new Uint8Array([1])], "clip.wav", { type: "audio/wav" });
+    vi.spyOn(file, "arrayBuffer").mockResolvedValue(new ArrayBuffer(8));
+    await expect(normalizeAudioToWav(file)).rejects.toMatchObject({ code: "audio_unsupported" });
   });
 });
