@@ -167,6 +167,17 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
     scheduledNoteKeysRef.current.clear();
   }, []);
 
+  const finishLesson = useCallback(() => {
+    synthRef.current?.releaseAll();
+    getTransport().stop();
+    clearScheduled();
+    phaseRef.current = null;
+    countInRef.current = false;
+    setEngineTime(exercise.duration);
+    setEngineStatus("complete");
+    stopTicker();
+  }, [clearScheduled, exercise.duration, setEngineStatus, setEngineTime, stopTicker]);
+
   const ensureAudio = useCallback(async () => {
     if (isAudioMaster && outputModeRef.current === "original" && !metronomeRef.current) return;
     await Tone.start();
@@ -289,18 +300,11 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
         schedulePlaybackRef.current(false);
         getTransport().start();
       } else {
-        synthRef.current?.releaseAll();
-        getTransport().stop();
-        clearScheduled();
-        phaseRef.current = null;
-        countInRef.current = false;
-        setEngineTime(exercise.duration);
-        setEngineStatus("complete");
-        stopTicker();
+        finishLesson();
       }
     }, now + Math.max(endDelay, 0.01));
     scheduledIdsRef.current.push(endId);
-  }, [clearScheduled, exercise, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);
+  }, [clearScheduled, exercise, finishLesson, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);
 
   const tick = useCallback((timestamp: number) => {
     if (phaseRef.current === null) return;
@@ -331,12 +335,8 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
           setLoopIterationState(loopIterationRef.current);
           setEngineTime(loopStartRef.current);
           scheduleExternalPlaybackRef.current();
-        } else if (audio?.ended) {
-          clearScheduled();
-          phaseRef.current = null;
-          setEngineTime(exercise.duration);
-          setEngineStatus("complete");
-          stopTicker();
+        } else if (audio?.ended || audioTime >= exercise.duration - 0.03) {
+          finishLesson();
         } else {
           setEngineTime(audioTime);
           scheduleExternalPlaybackRef.current();
@@ -376,13 +376,16 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
           setEngineTime(waitTarget);
           setEngineStatus("waiting");
           stopTicker();
+        } else if (!loopEnabledRef.current && nextTime >= exercise.duration - 0.03) {
+          finishLesson();
+          return;
         } else {
           setEngineTime(nextTime);
         }
       }
     }
     tickerRef.current = window.requestAnimationFrame(tickRef.current);
-  }, [audioRef, clearScheduled, exercise.bpm, exercise.duration, getAudioLessonTime, getRunningTime, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);
+  }, [audioRef, clearScheduled, exercise.bpm, exercise.duration, finishLesson, getAudioLessonTime, getRunningTime, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);
 
   useEffect(() => {
     schedulePlaybackRef.current = schedulePlayback;
@@ -764,11 +767,7 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
     };
     const onEnded = () => {
       if (loopEnabledRef.current) return;
-      clearScheduled();
-      phaseRef.current = null;
-      setEngineTime(exercise.duration);
-      setEngineStatus("complete");
-      stopTicker();
+      finishLesson();
     };
     const onError = () => setAudioError("The uploaded audio could not be loaded in this browser.");
     const onTimeUpdate = () => {
@@ -793,7 +792,7 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       audio.load();
       if (ownsUrl) URL.revokeObjectURL(url);
     };
-  }, [audioFile, audioRef, clearScheduled, exercise.duration, getAudioLessonTime, isAudioMaster, objectUrl, setEngineStatus, setEngineTime, stopTicker]);
+  }, [audioFile, audioRef, clearScheduled, exercise.duration, finishLesson, getAudioLessonTime, isAudioMaster, objectUrl, setEngineStatus, setEngineTime, stopTicker]);
 
   useEffect(() => {
     if (!isAudioMaster || !audioRef.current) return;
