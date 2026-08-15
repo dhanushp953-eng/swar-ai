@@ -187,6 +187,20 @@ describe("backend cold-start readiness", () => {
     await expect(waitForBackendReady(new AbortController().signal, { pollMs: 10, maxWaitMs: 1000 })).resolves.toBeUndefined();
   });
 
+  it("resolves immediately (no polling) when health is status ok while warmup is warming", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok", warmup: "warming" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 10, maxWaitMs: 1000 })).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves immediately (no polling) when health is status ok while warmup is failed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok", warmup: "failed" }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(waitForBackendReady(new AbortController().signal, { pollMs: 10, maxWaitMs: 1000 })).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("polls while warming and resolves once ready", async () => {
     let calls = 0;
     const fetchMock = vi.fn().mockImplementation(() => {

@@ -262,11 +262,14 @@ export async function pollAnalysisJob(jobId: string, signal: AbortSignal, onUpda
 }
 
 /**
- * Bounded wait for the backend to be reachable and past its warm-up phase
- * before an upload. Absorbs PaaS cold starts (e.g. Render Free spins down when
- * idle, so the first request can take tens of seconds while the service boots
- * and primes librosa). The wait is capped by `maxWaitMs` so the UI never
- * hangs, and the caller cancels it via the provided signal.
+ * Bounded wait for the backend to be reachable before an upload. A health
+ * response with HTTP 200 and `status: "ok"` is treated as ready immediately,
+ * regardless of the `warmup` field: the warm-up only reflects whether the
+ * analysis engine has finished priming, and the actual `/api/analyze` request
+ * warms it the rest of the way. Blocking on `warmup` here previously stalled
+ * the UI at "Starting analysis service…" for the full `maxWaitMs` while the
+ * real upload (which works) was never sent. The wait is capped by `maxWaitMs`
+ * so the UI never truly hangs, and the caller cancels it via the signal.
  */
 export const BACKEND_START_POLL_MS = 3000;
 export const BACKEND_START_MAX_WAIT_MS = 180_000;
@@ -311,7 +314,14 @@ async function fetchBackendReadiness(signal: AbortSignal): Promise<BackendReadin
       cache: "no-store",
     });
     if (!response.ok) return "unavailable";
-    const payload = (await response.json().catch(() => null)) as { warmup?: string } | null;
+    const payload = (await response.json().catch(() => null)) as {
+      status?: string;
+      warmup?: string;
+    } | null;
+    // HTTP 200 + status:"ok" means the backend is serving and can accept the
+    // upload right now. Do NOT block on `warmup`: the live /api/analyze request
+    // is what finishes warming the engine, so send it immediately.
+    if (payload?.status === "ok") return "ready";
     const warmup = payload?.warmup;
     if (warmup === "warming") return "warming";
     if (warmup === "failed") return "failed";
