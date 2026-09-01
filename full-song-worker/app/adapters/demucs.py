@@ -15,6 +15,10 @@ logger = logging.getLogger("fs1.adapters.demucs")
 
 ProgressCallback = Callable[[float, str], None]
 
+# Process-wide model cache so Demucs weights load/download exactly once per
+# worker process, even across multiple jobs.
+_MODEL_CACHE: dict[str, object] = {}
+
 
 class DemucsAdapter:
     """Vocal/accompaniment separation using Demucs.
@@ -69,26 +73,38 @@ class DemucsAdapter:
 
     def _load_model(self):
         import demucs.pretrained
-        import demucs.separate
 
-        del demucs.separate
+        name = self.settings.demucs_model
+        cached = _MODEL_CACHE.get(name)
+        if cached is not None:
+            return cached
         self._report(0.02, "Downloading/loading Demucs weights (first run only)")
-        return demucs.pretrained.get_model(self.settings.demucs_model)
+        model = demucs.pretrained.get_model(name)
+        _MODEL_CACHE[name] = model
+        return model
 
     def _apply(self, model, wav_path: Path, out_dir: Path) -> dict[str, np.ndarray]:
         import torch
+        from demucs.apply import apply_model
 
-        model.cpu()
+        del out_dir
         model.eval()
-        sources = model.apply_model(
-            torch.from_numpy(self._read_audio(wav_path, model.samplerate))[None],
+        audio = self._read_audio(wav_path, model.samplerate)
+        # HTDemucs operates on stereo (2-channel) input; duplicate mono into a
+        # (batch=1, channels=2, length) tensor.
+        mix = torch.from_numpy(audio)[None, None].expand(-1, 2, -1)
+        sources = apply_model(
+            model,
+            mix,
+            device="cpu",
             split=True,
             overlap=0.25,
-            device="cpu",
-        )[0]
+            shifts=1,
+            num_workers=0,
+        )  # returns shape (batch, num_sources, channels, length)
         tracks = {}
         for i, name in enumerate(model.sources):
-            tracks[name] = sources[i].numpy()
+            tracks[name] = sources[0, i, 0].numpy()
         return tracks
 
     @staticmethod

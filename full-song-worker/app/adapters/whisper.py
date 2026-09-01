@@ -13,6 +13,10 @@ logger = logging.getLogger("fs1.adapters.whisper")
 
 ProgressCallback = Callable[[float, str], None]
 
+# Process-wide model cache so Whisper loads/downloads exactly once per worker
+# process, even across multiple jobs. Keyed by (model, device, compute_type).
+_MODEL_CACHE: dict[tuple[str, str, str], object] = {}
+
 
 @dataclass
 class Transcript:
@@ -60,13 +64,18 @@ class WhisperAdapter:
             )
         from faster_whisper import WhisperModel
 
-        self._report(0.0, "Loading Whisper model")
-        self._model = WhisperModel(
-            self.settings.whisper_model,
-            device=self.settings.whisper_device,
-            compute_type=self.settings.whisper_compute_type,
-            download_root=str(self.settings.model_dir),
-        )
+        key = (self.settings.whisper_model, self.settings.whisper_device, self.settings.whisper_compute_type)
+        cached = _MODEL_CACHE.get(key)
+        if cached is None:
+            self._report(0.0, "Loading Whisper model")
+            cached = WhisperModel(
+                self.settings.whisper_model,
+                device=self.settings.whisper_device,
+                compute_type=self.settings.whisper_compute_type,
+                download_root=str(self.settings.model_dir),
+            )
+            _MODEL_CACHE[key] = cached
+        self._model = cached
         return self._model
 
     def transcribe(self, wav_path: Path, duration_seconds: float) -> Transcript:
