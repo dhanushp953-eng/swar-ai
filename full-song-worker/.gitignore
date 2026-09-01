@@ -1,0 +1,20 @@
+# Phase FS1 worker - ephemeral and machine-local artifacts. Never commit these.
+
+# Runtime temp files (decoded uploads, stems, staged audio)
+.runtime/
+
+# Downloaded model weights / heavy dependencies
+.models/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example

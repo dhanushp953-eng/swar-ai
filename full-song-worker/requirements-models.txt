@@ -1,0 +1,11 @@
+# Phase FS1 — optional real-model dependencies (heavy).
+# Install these only if you want to run real Demucs separation and Whisper lyrics
+# transcription in addition to the FFmpeg/librosa core. See README.md for sizes
+# and CPU/RAM usage. The normal test suite uses mocks and does NOT need these.
+
+# faster-whisper (CTranslate2-based, CPU-friendly Whisper with word timestamps)
+faster-whisper==1.1.1
+
+# Demucs vocal separation (pulls in PyTorch CPU).
+# On Windows the CPU (non-CUDA) torch wheel is installed by default.
+demucs==4.0.1
