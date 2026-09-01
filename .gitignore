@@ -60,3 +60,9 @@ full-song-worker/.models/
 full-song-worker/.runtime/
 **/model-cache/
 **/torch-cache/
+
+# Playwright E2E test artifacts (screenshots, traces, result JSON - never commit)
+/test-results/
+/playwright-report/
+/e2e/test-results/
+*.trace.zip

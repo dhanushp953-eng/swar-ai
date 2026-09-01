@@ -32,6 +32,40 @@ def _env_float(value: str | None, default: float, minimum: float, maximum: float
     return min(parsed, maximum) if maximum is not None else parsed
 
 
+def _find_ffmpeg(configured: str | None) -> str:
+    import shutil
+    import sys
+
+    if configured:
+        return configured
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+    prefix = Path(sys.prefix)
+    conda_bin_win = prefix / "Library" / "bin" / "ffmpeg.exe"
+    if conda_bin_win.exists():
+        return str(conda_bin_win)
+    conda_bin_posix = prefix / "bin" / "ffmpeg"
+    if conda_bin_posix.exists():
+        return str(conda_bin_posix)
+    return "ffmpeg"
+
+
+def _parse_cors_origins(raw: str | None) -> list[str]:
+    if not raw:
+        return ["http://localhost:3000", "http://127.0.0.1:3000"]
+    raw = raw.strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        try:
+            import json
+
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if item]
+        except Exception:
+            pass
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 @dataclass(frozen=True)
 class Settings:
     """Configuration for the Phase FS1 local full-song detection worker."""
@@ -42,7 +76,8 @@ class Settings:
     max_duration_seconds: float = 360.0  # 6 minutes
     target_sample_rate: int = 44100
     analysis_sample_rate: int = 22050
-    ffmpeg_binary: str = "ffmpeg"
+    ffmpeg_binary: str = field(default_factory=lambda: _find_ffmpeg(os.getenv("FS1_FFMPEG_BINARY")))
+    cors_allowed_origins: list[str] = field(default_factory=lambda: _parse_cors_origins(os.getenv("FS1_CORS_ALLOWED_ORIGINS")))
 
     temp_root: Path = field(default_factory=lambda: DEFAULT_TEMP_ROOT)
     model_dir: Path = field(default_factory=lambda: DEFAULT_MODEL_DIR)
@@ -84,7 +119,7 @@ class Settings:
             max_duration_seconds=_env_float(os.getenv("FS1_MAX_DURATION_SECONDS"), cls.max_duration_seconds, 0.1, None),
             target_sample_rate=_env_int(os.getenv("FS1_TARGET_SAMPLE_RATE"), cls.target_sample_rate, 8000, 192000),
             analysis_sample_rate=_env_int(os.getenv("FS1_ANALYSIS_SAMPLE_RATE"), cls.analysis_sample_rate, 8000, 192000),
-            ffmpeg_binary=os.getenv("FS1_FFMPEG_BINARY", cls.ffmpeg_binary),
+            ffmpeg_binary=_find_ffmpeg(os.getenv("FS1_FFMPEG_BINARY")),
             temp_root=Path(os.getenv("FS1_TEMP_ROOT", str(DEFAULT_TEMP_ROOT))),
             model_dir=Path(os.getenv("FS1_MODEL_DIR", str(DEFAULT_MODEL_DIR))),
             max_concurrent_jobs=_env_int(os.getenv("FS1_MAX_CONCURRENT_JOBS"), cls.max_concurrent_jobs, 1, 16),

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.adapters.ffmpeg import FFmpegAdapter
@@ -61,6 +62,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     runner = JobRunner(active, store, ffmpeg)
 
     app = FastAPI(title=active.app_name, version=active.analysis_version, lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=active.cors_allowed_origins,
+        allow_credentials=active.cors_allowed_origins != ["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.settings = active
     app.state.store = store
     app.state.runner = runner
