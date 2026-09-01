@@ -163,6 +163,13 @@
 .song-editor-state.is-dirty{color:var(--amber)}
 .song-editor-counts{color:var(--muted)}
 .song-editor-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.song-editor-exchange{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border:1px solid #2c2431;background:#0f0d12;border-radius:4px;margin-bottom:14px}
+.song-editor-exchange-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.song-editor-exchange .audio-secondary-button{margin:0}
+.song-editor-file-input{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.song-editor-notice{display:inline-flex;align-items:center;gap:6px;margin:0;padding:8px 12px;border-radius:4px;font-size:12px;line-height:1.4}
+.song-editor-notice.is-success{color:#7db98a;background:#14301b}
+.song-editor-notice.is-error{color:#ffb3b3;background:#3a1420}
 .song-editor-workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:16px;align-items:start}
 .song-editor-source,.song-editor-preview{display:flex;flex-direction:column;gap:8px;min-width:0}
 .song-editor-source-label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.1em;font-weight:700}
@@ -190,4 +197,7 @@
   .control-group{width:100%}
   .control-btn-row{flex-wrap:wrap}
   .song-sheet-container{padding:18px 14px}
+  .song-editor-exchange,.song-editor-exchange-actions{flex-direction:column;align-items:stretch}
+  .song-editor-exchange-actions .audio-secondary-button{justify-content:center}
+  .song-editor-notice{width:100%}
 }

@@ -519,7 +519,6 @@ export async function waitForBackendReady(
   const pollMs = options.pollMs ?? BACKEND_START_POLL_MS;
   const maxWaitMs = options.maxWaitMs ?? resolveBackendStartMaxWaitMs();
   const deadline = Date.now() + maxWaitMs;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     let readiness: BackendReadiness;
