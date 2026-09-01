@@ -20,9 +20,3 @@ export function useWebMidi(controller?: WebMidiController) {
 
   return { state, connect, disconnect, refresh, selectDevice, releaseAll };
 }
-
-export function useMidiHeldNotes(controller?: WebMidiController): ReadonlySet<number> {
-  const midi = controller ?? getMidiController();
-  const subscribe = useMemo(() => (listener: () => void) => midi.subscribeHeldNotes(listener), [midi]);
-  return useSyncExternalStore(subscribe, midi.getHeldNotes, midi.getHeldNotes);
-}

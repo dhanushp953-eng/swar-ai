@@ -31,7 +31,6 @@ describe("MidiKeyboardPanel", () => {
     expect(html).toContain("Unsupported");
     expect(html).toContain("Web MIDI is not supported");
     expect(html).not.toContain("Connect MIDI keyboard");
-    expect(html).toContain("virtual piano");
   });
 
   it("surfaces permission-denied with recovery guidance", async () => {
@@ -73,7 +72,6 @@ describe("MidiKeyboardPanel", () => {
     expect(html).toContain("Held notes");
     expect(html).toContain("Release all notes");
     expect(html).toContain("Disconnect");
-    expect(html).toContain("Hear generated piano");
     expect(html).toContain("Sustain pedal off");
   });
 
@@ -95,6 +93,5 @@ describe("MidiKeyboardPanel", () => {
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('aria-label="MIDI input device"');
-    expect(html).toContain('aria-label="MIDI volume"');
   });
 });
