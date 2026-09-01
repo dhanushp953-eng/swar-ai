@@ -1,8 +1,7 @@
 import { ArrowDown, ArrowRight, AudioLines, Headphones, Sparkles, Waves } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { Studio } from "@/components/studio";
-import { SongSheetReader } from "@/components/chords/SongSheetReader";
-import { twinkleLittleStarSongSheet } from "@/data/twinkle-song-sheet";
+import { SongSheetReaderConnected } from "@/components/chords/SongSheetReaderConnected";
 
 export default function Home() {
   return (
@@ -36,7 +35,7 @@ export default function Home() {
       </section>
 
       {/* Phase CL1: Song Chords Reading & Learning Workspace */}
-      <SongSheetReader songSheet={twinkleLittleStarSongSheet} />
+      <SongSheetReaderConnected />
 
       <Studio />
 

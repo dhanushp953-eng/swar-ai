@@ -22,6 +22,10 @@ const AudioAnalysisPanel = dynamic(
   () => import("@/features/studio/AudioAnalysisPanel").then((module) => ({ default: module.AudioAnalysisPanel })),
   { ssr: false, loading: () => <PanelSkeleton label="Audio analysis" /> },
 );
+const FullSongAnalysisPanel = dynamic(
+  () => import("@/features/studio/FullSongAnalysisPanel").then((module) => ({ default: module.FullSongAnalysisPanel })),
+  { ssr: false, loading: () => <PanelSkeleton label="Full-song analysis" /> },
+);
 const LessonFilePanel = dynamic(
   () => import("@/features/studio/LessonFilePanel").then((module) => ({ default: module.LessonFilePanel })),
   { ssr: false, loading: () => <PanelSkeleton label="Lesson file" /> },
@@ -85,5 +89,5 @@ export function Studio() {
     const url = detectedObjectUrlRef.current;
     if (url) URL.revokeObjectURL(url);
   }, []);
-  return <section id="studio" className="studio-section"><div className="section-heading"><div><p className="eyebrow">Practice room / 01</p><h1>Make a little room<br /><em>for your sound.</em></h1></div><p className="heading-copy">A quiet place to build your ear and your hands. Bring your own authorised audio when you&apos;re ready, or load a lesson file to begin.</p></div><AudioAnalysisPanel detectedLessonLoaded={Boolean(detectedLesson)} lessonLoadError={lessonLoadError} onAnalysisReset={resetDetectedLesson} onLoadDetectedLesson={loadDetectedLesson} /><LessonFilePanel importedLesson={importedLesson} onLoadImportedLesson={loadImportedLesson} onRemoveImportedLesson={removeImportedLesson} /><MidiKeyboardPanel /><LessonWorkspace key={detectedLesson?.exercise.id ?? "demo"} detectedLesson={detectedLesson} detectedObjectUrl={detectedObjectUrl} detectedAudioRef={detectedAudioRef} importedLesson={importedLesson} importedLessonKey={importedLessonKey} /><p className="legal-note">Only analyse audio you own or are authorised to use. Please respect the rights of music creators.</p></section>;
+  return <section id="studio" className="studio-section"><div className="section-heading"><div><p className="eyebrow">Practice room / 01</p><h1>Make a little room<br /><em>for your sound.</em></h1></div><p className="heading-copy">A quiet place to build your ear and your hands. Bring your own authorised audio when you&apos;re ready, or load a lesson file to begin.</p></div><AudioAnalysisPanel detectedLessonLoaded={Boolean(detectedLesson)} lessonLoadError={lessonLoadError} onAnalysisReset={resetDetectedLesson} onLoadDetectedLesson={loadDetectedLesson} /><FullSongAnalysisPanel /><LessonFilePanel importedLesson={importedLesson} onLoadImportedLesson={loadImportedLesson} onRemoveImportedLesson={removeImportedLesson} /><MidiKeyboardPanel /><LessonWorkspace key={detectedLesson?.exercise.id ?? "demo"} detectedLesson={detectedLesson} detectedObjectUrl={detectedObjectUrl} detectedAudioRef={detectedAudioRef} importedLesson={importedLesson} importedLessonKey={importedLessonKey} /><p className="legal-note">Only analyse audio you own or are authorised to use. Please respect the rights of music creators.</p></section>;
 }
