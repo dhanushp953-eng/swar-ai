@@ -67,3 +67,102 @@
 
 .practice-input{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0;padding:0;border:0}.practice-input legend{color:#a99eae;font-size:9px;text-transform:uppercase;letter-spacing:.1em;padding:0;margin-bottom:6px;flex-basis:100%}.practice-input-option{display:inline-flex;align-items:center;gap:6px;color:#d2cbd7;font-size:12px;padding:8px 11px;border:1px solid var(--line);background:#100e13;cursor:pointer}.practice-input-option:has(input:checked){border-color:#6e527d;background:#241b2d;color:#e3c9f0}.practice-input-option input{accent-color:var(--amber)}.practice-mic{margin-top:16px;padding:14px;border:1px solid #2c2732;background:#0f0d12}.practice-mic-actions{display:flex;flex-wrap:wrap;gap:9px}.practice-mic-toggle,.practice-mic-calibrate{padding:9px 13px;border:1px solid #6e527d;background:#241b2d;color:#e3c9f0;font-size:11px;font-weight:700}.practice-mic-toggle:hover:not(:disabled),.practice-mic-calibrate:hover:not(:disabled){border-color:var(--violet);background:#30223c}.practice-mic-toggle[aria-pressed=true]{border-color:var(--amber);color:var(--amber)}.practice-mic-toggle:disabled,.practice-mic-calibrate:disabled{opacity:.45;cursor:default}.practice-mic-status{margin:12px 0 0;color:#756d7b;font-size:11px;line-height:1.6}.practice-mic-meter{height:8px;margin-top:12px;border-radius:99px;background:#221d26;overflow:hidden}.practice-mic-meter-fill{height:100%;background:linear-gradient(90deg,#5fd4b2,#f3b66d,#d47f74);transition:width 60ms linear}.practice-mic-readings{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.practice-mic-readings span{border:1px solid var(--line);padding:5px 9px;color:#a99eae;font-size:10px;text-transform:uppercase;letter-spacing:.1em}.practice-mic-readings strong{margin-left:5px;color:var(--text);font-size:12px;text-transform:none;letter-spacing:0}.practice-mic-threshold{display:flex;flex-direction:column;gap:6px;margin-top:12px;color:#a99eae;font-size:9px;text-transform:uppercase;letter-spacing:.1em}.practice-mic-threshold input[type=range]{width:100%;accent-color:var(--amber)}.practice-mic-threshold output{align-self:flex-end}.practice-privacy{margin:12px 0 0;color:#756d7b;font-size:11px;line-height:1.6}@media(max-width:700px){.practice-input{flex-direction:column;align-items:stretch}.practice-input legend{flex-basis:auto}.practice-input-option{justify-content:center}.practice-mic-actions{flex-direction:column}}
 .practice-results{margin:24px 0 0;padding:24px;border:1px solid #342c3a;background:#0f0d12}.practice-results-heading{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:18px}.practice-results-heading h3{margin:8px 0 0;font-size:24px;letter-spacing:-.06em}.practice-results-note{display:flex;align-items:center;gap:7px;margin:0;color:#c9b8e6;font-size:11px;max-width:380px;line-height:1.5}.practice-results-empty{margin:0;padding:18px;border:1px dashed #2c2732;color:#756d7b;font-size:12px;line-height:1.6}.practice-results-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}.practice-results-stat{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid #2c2732;background:#141119}.practice-results-stat-label{color:#a99eae;font-size:9px;text-transform:uppercase;letter-spacing:.1em}.practice-results-stat-value{color:var(--amber);font-size:30px;line-height:1;letter-spacing:-.04em}.practice-results-stat-sub{color:#756d7b;font-size:10px;line-height:1.4}.practice-results-trend{justify-content:center}.practice-results-spark{width:100%;height:30px;color:#7fd8b8}.practice-results-trend-empty{margin:0;color:#756d7b;font-size:10px}.practice-results-filters{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:0;padding:14px;border:1px solid #2c2732;background:#141119}.practice-results-filters legend{color:#a99eae;font-size:9px;text-transform:uppercase;letter-spacing:.1em;padding:0;margin-bottom:4px;flex-basis:100%}.practice-results-filters label{display:flex;flex-direction:column;gap:5px;color:#a99eae;font-size:9px;text-transform:uppercase;letter-spacing:.08em}.practice-results-filters select{border:1px solid var(--line);background:#100e13;color:var(--text);padding:7px 9px;font-size:11px;text-transform:none;letter-spacing:0}.practice-results-reset{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #6e527d;background:#241b2d;color:#e3c9f0;font-size:11px;font-weight:700;cursor:pointer}.practice-results-reset:hover{border-color:var(--violet);background:#30223c}.practice-results-list{list-style:none;margin:16px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.practice-results-row{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:start;padding:14px;border:1px solid #2c2732;background:#141119}.practice-results-score{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:64px;padding:10px 6px;border:1px solid #342c3a;background:#0f0d12}.practice-results-score strong{color:var(--amber);font-size:30px;line-height:1;letter-spacing:-.04em}.practice-results-score span{color:#756d7b;font-size:9px}.practice-results-row-main{min-width:0}.practice-results-row-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.practice-results-row-heading strong{font-size:15px;font-weight:500;color:var(--text)}.practice-results-row-heading time{color:#756d7b;font-size:10px;white-space:nowrap}.practice-results-meta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}.practice-results-meta span{border:1px solid var(--line);padding:3px 7px;color:#a99eae;font-size:9px;text-transform:uppercase;letter-spacing:.08em}.practice-results-problems{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}.practice-results-problems li{display:inline-flex;align-items:center;gap:5px;border:1px solid #4a3b20;background:#1a1710;color:#f2d9a4;font-size:10px;padding:4px 8px}.practice-results-problem-kind{color:#d47f74;text-transform:uppercase;font-size:8px;letter-spacing:.06em}.practice-results-problems-more{color:#756d7b;border-color:#2c2732;background:#0f0d12}.practice-results-row-actions{display:flex;flex-direction:column;gap:8px;align-items:stretch}.practice-results-practice{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border:1px solid #6e527d;background:#241b2d;color:#e3c9f0;font-size:11px;font-weight:700;cursor:pointer}.practice-results-practice:hover{border-color:var(--violet);background:#30223c}.practice-results-delete{display:inline-flex;align-items:center;justify-content:center;padding:8px;border:1px solid #3a2a2a;background:#1a1113;color:#d47f74;font-size:11px;cursor:pointer}.practice-results-delete:hover{border-color:#d47f74}.practice-results-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:18px}.practice-results-export,.practice-results-danger,.practice-results-cancel{display:inline-flex;align-items:center;gap:6px;padding:9px 13px;border:1px solid #6e527d;background:#241b2d;color:#e3c9f0;font-size:11px;font-weight:700;cursor:pointer}.practice-results-export:hover,.practice-results-danger:hover,.practice-results-cancel:hover{border-color:var(--violet);background:#30223c}.practice-results-danger{border-color:#3a2a2a;background:#1a1113;color:#d47f74}.practice-results-danger:hover{border-color:#d47f74;background:#201418}.practice-results-clear-confirm{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}.practice-results-clear-question{color:#f2d9a4;font-size:11px}.practice-results-status{min-height:16px;margin:12px 0 0;color:#b7d8b0;font-size:11px;line-height:1.5}@media(max-width:700px){.practice-results{padding:19px}.practice-results-heading{display:block}.practice-results-note{margin-top:12px}.practice-results-stats{grid-template-columns:repeat(2,1fr)}.practice-results-filters{flex-direction:column;align-items:stretch}.practice-results-filters label{flex-basis:auto}.practice-results-row{grid-template-columns:auto 1fr;gap:10px}.practice-results-row-actions{grid-column:1/-1;flex-direction:row}.practice-results-row-actions>*{flex:1}}
+
+/* ==========================================================================
+   Phase CL1: Song Chords Learning Workspace
+   ========================================================================== */
+.chord-learning-workspace{max-width:1240px;margin:auto;padding:60px 28px 90px;border-top:1px solid #211d24}
+.chord-workspace-header{margin-bottom:28px}
+.song-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.song-badge-row{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.public-domain-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border:1px solid #4a3b20;background:#1a1710;color:var(--amber);font-size:10px;text-transform:uppercase;letter-spacing:.08em;border-radius:3px}
+.difficulty-badge{display:inline-flex;align-items:center;padding:4px 9px;border:1px solid #355044;background:#141d18;color:#7fd8b8;font-size:10px;text-transform:uppercase;letter-spacing:.08em;border-radius:3px}
+.song-title{font-size:clamp(32px,4.5vw,52px);line-height:1.05;letter-spacing:-.06em;margin:0 0 8px;font-weight:700}
+.song-origin{color:var(--muted);font-size:13px;margin:0}
+
+/* Instrument Tab Switcher */
+.instrument-tab-group{display:flex;gap:6px;background:#100e13;padding:5px;border:1px solid var(--line);border-radius:6px}
+.instrument-tab{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;background:none;border:1px solid transparent;color:var(--muted);font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;transition:all .15s}
+.instrument-tab:hover{color:var(--text);background:#191421}
+.instrument-tab.is-active{background:#241b2d;border-color:var(--violet);color:#f5f1f7}
+.tab-icon{font-size:14px}
+
+/* Metadata Strip */
+.song-meta-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px;padding:14px 18px;border:1px solid #282230;background:#110f15}
+.meta-item{display:flex;flex-direction:column;gap:3px}
+.meta-label{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+.meta-value{color:var(--text);font-size:13px;font-weight:600}
+
+/* Interactive Controls Toolbar */
+.chord-controls-toolbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;flex-wrap:wrap;gap:18px;padding:14px 18px;margin-bottom:24px;border:1px solid #362a42;background:#120f18ee;backdrop-filter:blur(12px);box-shadow:0 8px 30px #00000033}
+.control-group{display:flex;flex-direction:column;gap:6px}
+.control-group-title{color:#9d91a8;font-size:9px;text-transform:uppercase;letter-spacing:.12em;font-weight:700}
+.control-btn-row{display:flex;align-items:center;gap:6px}
+.control-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border:1px solid var(--line);background:#17131e;color:#d8cfe0;font-size:11px;font-weight:600;border-radius:4px;cursor:pointer;transition:all .15s}
+.control-btn:hover:not(:disabled){border-color:var(--violet);color:#fff;background:#241b2d}
+.control-btn:disabled{opacity:.4;cursor:not-allowed}
+.control-btn.icon-btn{padding:7px 9px}
+.control-btn.play-scroll-btn{border-color:var(--amber);background:#221a10;color:var(--amber)}
+.control-btn.play-scroll-btn.is-active{background:var(--amber);color:#0c0b0f;border-color:var(--amber)}
+.control-btn.reset-btn{font-size:10px;padding:5px 8px;border-color:#5a3b38;color:#e89f97}
+.transpose-display{min-width:76px;text-align:center;font-size:11px;font-weight:700;color:var(--violet);padding:6px 8px;background:#100d16;border:1px solid #2b2236;border-radius:4px}
+.capo-select{padding:7px 10px;border:1px solid var(--line);background:#17131e;color:var(--text);font-size:11px;font-weight:600;border-radius:4px;cursor:pointer}
+.capo-select:focus-visible{outline:none;border-color:var(--violet)}
+.font-size-label{min-width:65px;text-align:center;font-size:11px;color:#c9c0d2}
+.speed-selector{display:flex;gap:3px;margin-left:4px}
+.speed-btn{padding:5px 8px;border:1px solid #2c2436;background:#100e15;color:var(--muted);font-size:10px;border-radius:3px;cursor:pointer}
+.speed-btn:hover{color:var(--text);border-color:var(--violet)}
+.speed-btn.is-selected{border-color:var(--amber);color:var(--amber);background:#1f170f}
+
+/* Chord Summary Card */
+.chord-summary-panel{padding:20px;margin-bottom:28px;border:1px solid #2f253a;background:linear-gradient(135deg,#15111c,#100e14)}
+.summary-header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:16px}
+.summary-title-col h3{margin:5px 0 0;font-size:18px;letter-spacing:-.04em}
+.summary-instrument-hint{color:var(--muted);font-size:11px}
+.chord-diagrams-grid{display:flex;flex-wrap:wrap;gap:16px}
+.chord-svg-container{background:#0e0b12;border:1px solid #261f2e;padding:8px 10px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.chord-svg text{user-select:none}
+
+/* Piano Notes Badge Card */
+.piano-notes-card{display:flex;flex-direction:column;gap:10px;min-width:145px;padding:12px 14px;border:1px solid #362947;background:#120f18;border-radius:6px}
+.piano-chord-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.piano-chord-title strong{font-size:16px;color:var(--violet);letter-spacing:-.03em}
+.piano-chord-badge-pill{padding:3px 7px;border:1px solid #5a3d7a;background:#221633;color:#e7d8f5;font-size:11px;font-weight:700;border-radius:3px;letter-spacing:.04em}
+.piano-notes-list{display:flex;gap:6px}
+.piano-note-chip{display:flex;flex-direction:column;align-items:center;padding:5px 7px;border:1px solid #261f30;background:#0d0a12;border-radius:3px}
+.piano-note-chip .note-name{font-size:12px;font-weight:700;color:var(--text)}
+.piano-note-chip .note-interval{font-size:9px;color:var(--muted);text-transform:uppercase}
+
+/* Song Sheet (Lyrics & Chords) */
+.song-sheet-container{padding:26px 30px;border:1px solid #2f253a;background:#0d0b11;overflow-y:auto;max-height:680px;scroll-behavior:smooth}
+.font-sm{font-size:14px;line-height:1.7}
+.font-md{font-size:16px;line-height:1.8}
+.font-lg{font-size:19px;line-height:1.9}
+.font-xl{font-size:22px;line-height:2.0}
+
+.song-section{margin-bottom:26px}
+.section-header-tag{color:var(--amber);font-size:12px;text-transform:uppercase;letter-spacing:.12em;margin:0 0 12px;font-weight:700}
+.section-lines{display:flex;flex-direction:column;gap:12px}
+.song-lyric-line{display:flex;flex-wrap:wrap;align-items:flex-end;gap:0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:pre-wrap}
+.lyric-segment{display:inline-flex;flex-direction:column;align-items:flex-start}
+.chord-anchor{height:1.35em;display:inline-flex;align-items:flex-end;font-weight:700}
+.chord-badge{color:var(--amber);font-size:.95em;letter-spacing:-.02em;padding-right:2px}
+.chord-spacer{display:inline-block;height:1em}
+.lyric-text{color:var(--text);letter-spacing:0}
+
+/* Footer tip */
+.chord-learning-footer{margin-top:20px;padding:14px 18px;border:1px solid #3d3020;background:#18130d;color:#dfcaa5;font-size:12px;line-height:1.55;border-radius:4px}
+.chord-learning-footer strong{color:var(--amber)}
+
+/* Mobile Responsive */
+@media(max-width:768px){
+  .chord-learning-workspace{padding:40px 16px 60px}
+  .song-title-row{flex-direction:column;align-items:stretch}
+  .instrument-tab-group{width:100%;justify-content:space-between}
+  .instrument-tab{flex:1;justify-content:center;padding:8px 6px;font-size:11px}
+  .song-meta-strip{grid-template-columns:repeat(2,1fr)}
+  .chord-controls-toolbar{position:sticky;top:0;padding:12px;gap:12px}
+  .control-group{width:100%}
+  .control-btn-row{flex-wrap:wrap}
+  .song-sheet-container{padding:18px 14px}
+}

@@ -1,7 +1,89 @@
 import { ArrowDown, ArrowRight, AudioLines, Headphones, Sparkles, Waves } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { Studio } from "@/components/studio";
+import { SongSheetReader } from "@/components/chords/SongSheetReader";
+import { twinkleLittleStarSongSheet } from "@/data/twinkle-song-sheet";
 
 export default function Home() {
-  return <main id="top"><SiteHeader /><section className="hero"><div className="hero-copy"><p className="kicker"><span /> AI-powered visual instrument tutor</p><h1>Hear it.<br /><span>See it.</span><br />Play it.</h1><p className="hero-description">SwarAI turns the music you love into a visual practice space, so learning feels less like decoding and more like playing.</p><div className="hero-actions"><a className="primary-button" href="#studio">Open the studio <ArrowRight size={17} /></a><a className="text-link" href="#how-it-works">Explore SwarAI <ArrowDown size={15} /></a></div></div><div className="hero-art" aria-label="Abstract sound visualization"><div className="art-caption"><span>LISTENING / LEARNING</span><strong>sound becomes shape</strong></div><div className="waveform">{Array.from({ length: 38 }, (_, index) => <i key={index} style={{ height: `${18 + ((index * 29) % 72)}%` }} />)}</div><div className="art-note">C<br /><small>major</small></div><div className="art-ring ring-one" /><div className="art-ring ring-two" /></div></section><Studio /><section id="how-it-works" className="how-section"><div className="section-heading compact"><div><p className="eyebrow">The idea / 02</p><h2>Less guessing.<br /><em>More knowing.</em></h2></div><p className="heading-copy">Your ears already know more than you think. SwarAI gives that instinct a visual language.</p></div><div className="steps"><article><span>01</span><AudioLines size={22} /><h3>Bring your sound</h3><p>Use audio you own or have permission to analyse. Your music stays the starting point.</p></article><article><span>02</span><Waves size={22} /><h3>See the pattern</h3><p>Future visual lessons will map melody, rhythm, and phrasing into an intuitive canvas.</p></article><article><span>03</span><Headphones size={22} /><h3>Play it back</h3><p>Practice at your pace with a visual guide that meets you where your hands are.</p></article></div></section><section id="about" className="about-section"><div className="about-symbol"><Sparkles size={23} /></div><div><p className="eyebrow">About SwarAI / 03</p><h2>Music is a language<br />worth <em>seeing.</em></h2><p>SwarAI is being built for curious musicians: a thoughtful bridge between listening deeply and playing freely. This foundation is intentionally simple: an instrument, a canvas, and space to learn.</p></div></section><footer><div className="brand"><span className="brand-mark">S</span>Swar<span className="brand-accent">AI</span></div><p>Only analyse audio you own or are authorised to use. SwarAI does not provide copyrighted music.</p><span>© 2026 SwarAI</span></footer></main>;
+  return (
+    <main id="top">
+      <SiteHeader />
+      <section className="hero">
+        <div className="hero-copy">
+          <p className="kicker"><span /> AI-powered visual instrument tutor</p>
+          <h1>Hear it.<br /><span>See it.</span><br />Play it.</h1>
+          <p className="hero-description">SwarAI turns the music you love into a visual practice space, so learning feels less like decoding and more like playing.</p>
+          <div className="hero-actions">
+            <a className="primary-button" href="#song-chords">Explore song chords <ArrowRight size={17} /></a>
+            <a className="text-link" href="#studio">Open studio <ArrowDown size={15} /></a>
+          </div>
+
+        </div>
+        <div className="hero-art" aria-label="Abstract sound visualization">
+          <div className="art-caption">
+            <span>LISTENING / LEARNING</span>
+            <strong>sound becomes shape</strong>
+          </div>
+          <div className="waveform">
+            {Array.from({ length: 38 }, (_, index) => (
+              <i key={index} style={{ height: `${18 + ((index * 29) % 72)}%` }} />
+            ))}
+          </div>
+          <div className="art-note">C<br /><small>major</small></div>
+          <div className="art-ring ring-one" />
+          <div className="art-ring ring-two" />
+        </div>
+      </section>
+
+      {/* Phase CL1: Song Chords Reading & Learning Workspace */}
+      <SongSheetReader songSheet={twinkleLittleStarSongSheet} />
+
+      <Studio />
+
+      <section id="how-it-works" className="how-section">
+        <div className="section-heading compact">
+          <div>
+            <p className="eyebrow">The idea / 02</p>
+            <h2>Less guessing.<br /><em>More knowing.</em></h2>
+          </div>
+          <p className="heading-copy">Your ears already know more than you think. SwarAI gives that instinct a visual language.</p>
+        </div>
+        <div className="steps">
+          <article>
+            <span>01</span>
+            <AudioLines size={22} />
+            <h3>Bring your sound</h3>
+            <p>Use audio you own or have permission to analyse. Your music stays the starting point.</p>
+          </article>
+          <article>
+            <span>02</span>
+            <Waves size={22} />
+            <h3>See the pattern</h3>
+            <p>Future visual lessons will map melody, rhythm, and phrasing into an intuitive canvas.</p>
+          </article>
+          <article>
+            <span>03</span>
+            <Headphones size={22} />
+            <h3>Play it back</h3>
+            <p>Practice at your pace with a visual guide that meets you where your hands are.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="about" className="about-section">
+        <div className="about-symbol"><Sparkles size={23} /></div>
+        <div>
+          <p className="eyebrow">About SwarAI / 03</p>
+          <h2>Music is a language<br />worth <em>seeing.</em></h2>
+          <p>SwarAI is being built for curious musicians: a thoughtful bridge between listening deeply and playing freely. This foundation is intentionally simple: an instrument, a canvas, and space to learn.</p>
+        </div>
+      </section>
+
+      <footer>
+        <div className="brand"><span className="brand-mark">S</span>Swar<span className="brand-accent">AI</span></div>
+        <p>Only analyse audio you own or are authorised to use. SwarAI does not provide copyrighted music.</p>
+        <span>© 2026 SwarAI</span>
+      </footer>
+    </main>
+  );
 }
