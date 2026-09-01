@@ -64,18 +64,20 @@ def detect_chords(
 ) -> ChordDetectResult:
     """Estimate beat-synchronised chord events from the accompaniment audio.
 
-    Beat source ladder:
-      1. Beat-track the percussive component.
-      2. If unreliable, retry using the full-mix onset envelope.
-      3. If still no reliable beats, analyse chords using fixed time windows
-         (BPM is left as None and a warning is attached - a BPM is never
-         fabricated).
-
-    The ``bpm`` argument is an optional caller-provided hint and is never used
-    to invent a BPM when no reliable beats are found.
+    This function now logs detailed audio metadata, clamps beat times to the
+    actual audio duration, and validates chord event invariants.
     """
     import librosa
+    import logging
 
+    logger = logging.getLogger("fs1.chords")
+    audio_len = len(audio)
+    audio_duration = audio_len / sr
+    logger.debug(
+        "Audio decoded: sample_rate=%d, samples=%d, duration=%.4f sec", sr, audio_len, audio_duration
+    )
+
+    # Beat tracking ladder
     _, y_percussive = librosa.effects.hpss(audio)
     tempo, beat_frames, beat_source = _track_beats(y_percussive, audio, sr)
 
@@ -86,10 +88,14 @@ def detect_chords(
         beat_source = "windowed_fallback"
         warning = "Reliable beats were not detected; chords were analysed using fixed time windows."
     else:
+        # Ensure beat frames are within chroma bounds
         fixed_frames = librosa.util.fix_frames(
             np.asarray(beat_frames), x_min=0, x_max=chroma.shape[1] - 1
         )
         beat_times = librosa.frames_to_time(fixed_frames, sr=sr).tolist()
+        # Clamp any rounding overshoot to audio duration
+        if beat_times and beat_times[-1] > audio_duration:
+            beat_times[-1] = audio_duration
         beat_sync = librosa.util.sync(chroma, fixed_frames, aggregate=np.mean)
         detected_bpm = float(tempo) if tempo is not None else None
         warning = None
@@ -98,11 +104,17 @@ def detect_chords(
     labels = [r[0] for r in raw]
     confs = [r[1] for r in raw]
 
-    # Temporal smoothing of labels using a window majority vote
+    # Temporal smoothing and threshold/merge
     smoothed = _smooth_labels(labels, settings.chord_smoothing_window)
+    chords = _threshold_and_merge(smoothed, confs, beat_times, settings, audio_duration=audio_duration)
 
-    # Confidence threshold -> N, then merge repeated adjacent chords
-    chords = _threshold_and_merge(smoothed, confs, beat_times, settings)
+    # Invariant checks
+    tolerance = 1e-3
+    for ev in chords:
+        assert ev.start >= -tolerance, f"Chord start before 0: {ev.start}"
+        assert ev.end > ev.start + tolerance, f"Chord end not greater than start: {ev.start}-{ev.end}"
+        assert ev.end <= audio_duration + tolerance, f"Chord end exceeds audio duration: {ev.end} > {audio_duration}"
+
     return ChordDetectResult(
         chords=chords,
         beat_times=beat_times,
@@ -149,27 +161,42 @@ def _windowed_analysis(
     import librosa
 
     window_seconds = settings.chord_window_seconds
-    dur = len(audio) / sr
-    n_windows = max(1, int(math.ceil(dur / window_seconds)))
+    audio_duration = len(audio) / sr
+    n_windows = max(1, int(math.ceil(audio_duration / window_seconds)))
     frame_count = max(chroma.shape[1] - 1, 1)
     boundaries = np.linspace(0, frame_count, n_windows + 1).astype(int)
     boundaries = librosa.util.fix_frames(boundaries, x_min=0, x_max=chroma.shape[1] - 1)
     beat_times = librosa.frames_to_time(boundaries, sr=sr).tolist()
+    # Clamp the last time boundary to the true audio duration
+    if beat_times and beat_times[-1] > audio_duration:
+        beat_times[-1] = audio_duration
     beat_sync = librosa.util.sync(chroma, boundaries, aggregate=np.mean)
     return beat_times, beat_sync
 
 
-def _template_match(chroma_col: np.ndarray) -> tuple[str, float]:
+def _template_scores(chroma_col: np.ndarray) -> np.ndarray:
+    """Score a chroma column against every candidate root transposed template.
+
+    Returns a (12, 2) array where ``scores[root, 0]`` is the major score for
+    ``root`` and ``scores[root, 1]`` the minor score. Each template is rotated
+    to the candidate root before scoring so candidates genuinely differ.
+    """
     norm = chroma_col / (np.linalg.norm(chroma_col) + 1e-9)
-    best = (-1, -1.0)
-    best_score = -1.0
+    scores = np.zeros((12, 2), dtype=float)
     for root in range(12):
-        for quality, template in (("major", _MAJOR), ("minor", _MINOR)):
-            score = float(np.dot(norm, template) / (np.linalg.norm(template) + 1e-9))
-            if score > best_score:
-                best_score = score
-                best = (root, quality)
-    return chord_symbol(best[0], best[1]), max(0.0, min(1.0, best_score))
+        for quality_idx, template in enumerate((_MAJOR, _MINOR)):
+            rotated = np.roll(template, root)
+            scores[root, quality_idx] = float(
+                np.dot(norm, rotated) / (np.linalg.norm(rotated) + 1e-9)
+            )
+    return scores
+
+
+def _template_match(chroma_col: np.ndarray) -> tuple[str, float]:
+    scores = _template_scores(chroma_col)
+    root, quality_idx = np.unravel_index(int(scores.argmax()), scores.shape)
+    quality = "major" if int(quality_idx) == 0 else "minor"
+    return chord_symbol(int(root), quality), max(0.0, min(1.0, float(scores[root, quality_idx])))
 
 
 
@@ -194,6 +221,7 @@ def _threshold_and_merge(
     confs: list[float],
     beat_times: list[float],
     settings: Settings,
+    audio_duration: float | None = None,
 ) -> list[ChordEvent]:
     beat_times = [float(t) for t in beat_times]
     events: list[ChordEvent] = []
@@ -238,6 +266,9 @@ def _threshold_and_merge(
     end_time = float(beat_times[-1]) if beat_times else (current_start + settings.chord_min_duration_seconds)
     if end_time <= current_start:
         end_time = current_start + settings.chord_min_duration_seconds
+    # Clamp final end to actual audio duration
+    if audio_duration is not None and end_time > audio_duration:
+        end_time = audio_duration
     push(end_time, len(beat_times) - 1)
 
     # Reject short/unstable events and merge adjacent repeated chords

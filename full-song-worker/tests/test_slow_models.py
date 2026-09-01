@@ -20,9 +20,19 @@ import pytest
 
 from app.adapters.demucs import DemucsAdapter
 from app.adapters.whisper import WhisperAdapter
-from tests.audio_fixtures import synth_cg_am_f_progression
+from app.config import Settings
+from app.pipeline.chords import detect_chords
+from tests.audio_fixtures import (
+    cgamf_melody_notes,
+    synth_cg_am_f_progression,
+    synth_vocal_track,
+    weighted_chord_accuracy,
+)
 
 pytestmark = pytest.mark.slow
+
+_ACC_CHORD_HZ = {"C": 261.63, "G": 196.00, "Am": 220.00, "F": 174.61}
+_ACC_SEQUENCE = ["C", "G", "Am", "F"]
 
 _DEMUCS_AVAILABLE = importlib.util.find_spec("demucs") is not None and importlib.util.find_spec("torch") is not None
 _WHISPER_AVAILABLE = importlib.util.find_spec("faster_whisper") is not None
@@ -86,3 +96,45 @@ def test_real_whisper_transcription(tmp_path, worker_settings):
     assert isinstance(result.warnings, list)
     assert result.language != ""
     assert time.monotonic() - started < 1200
+
+
+def _chord_settings() -> Settings:
+    return Settings(
+        chord_confidence_threshold=0.40,
+        chord_min_duration_seconds=0.40,
+        chord_smoothing_window=3,
+    )
+
+
+def _cgamf_expected_segments(beats_per_chord: int, beat_sec: float):
+    segment = beats_per_chord * beat_sec
+    return [(ch, (i * segment, (i + 1) * segment)) for i, ch in enumerate(_ACC_SEQUENCE)]
+
+
+@require_demucs
+def test_chord_accuracy_gate_direct_and_after_demucs(worker_settings, tmp_path):
+    """Chord detection must hold >= 80% weighted accuracy on C-G-Am-F both on
+    the direct accompaniment and on real-Demucs-separated accompaniment taken
+    from a full mix with a synthetic vocal melody."""
+    sr = 22050
+    beats_per_chord, beat_sec = 4, 0.5
+    accomp, _ = synth_cg_am_f_progression(sr=sr, beats_per_chord=beats_per_chord, beat_sec=beat_sec)
+    dur = len(accomp) / sr
+    expected = _cgamf_expected_segments(beats_per_chord, beat_sec)
+    settings = _chord_settings()
+
+    # 1) DIRECT gate
+    direct = detect_chords(accomp, sr, settings)
+    assert weighted_chord_accuracy(direct.chords, expected, dur) >= 0.80
+
+    # 2) POST-DEMUCS gate: build a full mix of accompaniment plus a vocal melody.
+    vocals = synth_vocal_track(dur, cgamf_melody_notes(_ACC_CHORD_HZ, beats_per_chord, beat_sec), sr=sr)
+    mix = np.clip(accomp + 0.35 * vocals, -1.0, 1.0).astype(np.float32)
+    wav = Path(tmp_path) / "mix.wav"
+    _write_wav(wav, mix, sr)
+    stems = DemucsAdapter(worker_settings).separate(wav, Path(tmp_path) / "stems")
+    separated = stems["accompaniment"]
+    separated_sr = int(stems["sample_rate"])
+    sep_dur = min(dur, len(separated) / separated_sr)
+    separated_result = detect_chords(separated, separated_sr, settings)
+    assert weighted_chord_accuracy(separated_result.chords, expected, sep_dur) >= 0.80

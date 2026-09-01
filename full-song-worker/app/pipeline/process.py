@@ -56,16 +56,17 @@ def process_full_song(
     report(0.25, "Separating vocals from accompaniment")
     accompaniment = None
     vocals_path: Path | None = None
+    accompaniment_sr: int = settings.target_sample_rate  # will be updated after separation
     try:
         separate_dir = settings.temp_root / "stems"
         separate_dir.mkdir(parents=True, exist_ok=True)
         demucs = DemucsAdapter(settings, progress=lambda f, m: report(0.25 + f * 0.25, m))
         _check_cancelled(cancel_token)
         stems = demucs.separate(mixture_path, separate_dir)
-        sample_rate = int(stems["sample_rate"])
+        accompaniment_sr = int(stems["sample_rate"])
         accompaniment = stems["accompaniment"]
         vocals_path = separate_dir / f"{song_id}-vocals.wav"
-        _write_pcm(vocals_path, stems["vocals"], sample_rate)
+        _write_pcm(vocals_path, stems["vocals"], accompaniment_sr)
     except CapabilityError:
         # Separation unavailable; lyrics may still be transcribed from the mixture.
         report(0.35, "Demucs unavailable; will transcribe from the full mixture")
@@ -89,14 +90,19 @@ def process_full_song(
     try:
         _check_cancelled(cancel_token)
         chord_source = accompaniment
+        chord_sr: int
         if chord_source is None:
             import soundfile as sf
 
-            data, sr = sf.read(str(mixture_path), dtype="float32")
+            data, chord_sr = sf.read(str(mixture_path), dtype="float32")
+            if data.ndim > 1:
+                data = data.mean(axis=1)
             chord_source = data
+        else:
+            chord_sr = accompaniment_sr
         chord_result = detect_chords(
             chord_source,
-            settings.analysis_sample_rate if accompaniment is not None else settings.target_sample_rate,
+            chord_sr,
             settings,
         )
         chord_events = chord_result.chords
