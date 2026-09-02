@@ -6,7 +6,11 @@ import type { NextConfig } from "next";
  * local dev backend so `next dev` keeps working without configuration.
  */
 function backendConnectOrigins(): string[] {
-  const candidates = [process.env.NEXT_PUBLIC_AUDIO_API_URL, process.env.NEXT_PUBLIC_TUTOR_API_URL]
+  const candidates = [
+    process.env.NEXT_PUBLIC_AUDIO_API_URL,
+    process.env.NEXT_PUBLIC_TUTOR_API_URL,
+    process.env.NEXT_PUBLIC_FS1_API_URL,
+  ]
     .map((value) => (value ?? "").trim())
     .filter(Boolean);
   const origins = new Set<string>();
@@ -18,7 +22,10 @@ function backendConnectOrigins(): string[] {
       // Ignore malformed URLs; they are ignored rather than breaking the build.
     }
   }
-  origins.add("http://localhost:8000");
+  if (process.env.NODE_ENV !== "production") {
+    origins.add("http://localhost:8000");
+    origins.add("http://localhost:8088");
+  }
   return [...origins];
 }
 
@@ -34,6 +41,7 @@ const securityHeaders = [
     value: [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "worker-src 'self' blob:",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "media-src 'self' blob:",

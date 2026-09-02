@@ -22,6 +22,24 @@ describe("resolveServiceBaseUrl", () => {
     });
   });
 
+  it("honours an alternative default base (e.g. the FS1 worker port)", () => {
+    withBrowserHost("localhost", () => {
+      expect(resolveServiceBaseUrl(undefined, "http://localhost:8088")).toBe("http://localhost:8088");
+    });
+  });
+
+  it("prefers the configured URL over the alternative default", () => {
+    withBrowserHost("localhost", () => {
+      expect(resolveServiceBaseUrl("http://localhost:7000", "http://localhost:8088")).toBe("http://localhost:7000");
+    });
+  });
+
+  it("returns same-origin empty on production domains regardless of the default", () => {
+    withBrowserHost("swar-ai-psi.vercel.app", () => {
+      expect(resolveServiceBaseUrl(undefined, "http://localhost:8088")).toBe("");
+    });
+  });
+
   it("swaps loopback host for the browser LAN hostname on a phone", () => {
     withBrowserHost("192.168.29.53", () => {
       expect(resolveServiceBaseUrl("http://localhost:8000")).toBe("http://192.168.29.53:8000");

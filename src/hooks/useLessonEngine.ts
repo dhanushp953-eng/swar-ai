@@ -304,7 +304,7 @@ export function useLessonEngine(exercise: LessonExercise, options: LessonEngineO
       }
     }, now + Math.max(endDelay, 0.01));
     scheduledIdsRef.current.push(endId);
-  }, [clearScheduled, exercise, finishLesson, isAudioMaster, setEngineStatus, setEngineTime, stopTicker]);
+  }, [clearScheduled, exercise, finishLesson, isAudioMaster, setEngineTime]);
 
   const tick = useCallback((timestamp: number) => {
     if (phaseRef.current === null) return;

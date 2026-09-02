@@ -11,7 +11,7 @@ export function stripTrailingSlash(value: string): string {
  * itself and the request would fail. In that case we swap only the hostname for
  * window.location.hostname, keeping the configured scheme and port.
  */
-export function resolveServiceBaseUrl(configured: string | undefined): string {
+export function resolveServiceBaseUrl(configured: string | undefined, defaultBase = "http://localhost:8000"): string {
   const raw = (configured ?? "").trim();
   if (raw === "/" || raw === "") {
     if (typeof window !== "undefined" && window.location && window.location.hostname) {
@@ -32,7 +32,7 @@ export function resolveServiceBaseUrl(configured: string | undefined): string {
     }
     if (raw === "/") return "";
   }
-  const base = raw || "http://localhost:8000";
+  const base = raw || defaultBase;
   if (typeof window === "undefined" || !window.location) {
     return stripTrailingSlash(base);
   }
