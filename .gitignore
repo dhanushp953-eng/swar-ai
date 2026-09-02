@@ -66,3 +66,6 @@ full-song-worker/.runtime/
 /playwright-report/
 /e2e/test-results/
 *.trace.zip
+
+.vercel
+.env*

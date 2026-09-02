@@ -1,0 +1,14 @@
+full-song-worker/
+e2e/
+playwright-report/
+test-results/
+*.trace.zip
+.env*
+.vercel/
+.next/
+node_modules/
+backend/.venv/
+backend/tests/
+**/__pycache__/
+**/.pytest_cache/
+coverage/
