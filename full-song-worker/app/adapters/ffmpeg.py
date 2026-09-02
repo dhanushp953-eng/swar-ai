@@ -26,7 +26,7 @@ class FFmpegAdapter:
             raise WorkerError("decoder_unavailable", "FFmpeg is not available, cannot probe duration.", 503)
         args = [
             self.binary,
-            "-v", "error",
+            "-hide_banner",
             "-i", str(path),
             "-f", "null",
             "-",

@@ -1,10 +1,33 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.adapters.demucs import DemucsAdapter
+from app.adapters.ffmpeg import FFmpegAdapter
 from app.adapters.whisper import WhisperAdapter
 from app.errors import CapabilityError
+
+
+def test_ffmpeg_probe_duration_keeps_metadata_visible(worker_settings, monkeypatch, tmp_path):
+    adapter = FFmpegAdapter(worker_settings)
+    captured: dict[str, list[str]] = {}
+
+    monkeypatch.setattr(adapter, "available", lambda: True)
+
+    def fake_run(args, **kwargs):
+        del kwargs
+        captured["args"] = args
+        return SimpleNamespace(returncode=0, stderr="Duration: 00:00:32.05, start: 0.000000, bitrate: 192 kb/s")
+
+    monkeypatch.setattr("app.adapters.ffmpeg.subprocess.run", fake_run)
+
+    duration = adapter.probe_duration(tmp_path / "song.mp3")
+
+    assert duration == pytest.approx(32.05)
+    assert "-hide_banner" in captured["args"]
+    assert "-v" not in captured["args"]
 
 
 def test_demucs_adapter_available_false_without_deps(worker_settings):
